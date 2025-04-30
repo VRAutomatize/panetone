@@ -1,11 +1,105 @@
 import asyncio
 import logging
-from typing import Dict, Tuple, Optional, List, Any
+import psutil
+import math
+from typing import Dict, Tuple, Optional, List, Any, Set
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError
 from functools import wraps
 import time
+from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class SystemResources:
+    cpu_cores: int
+    total_memory_gb: float
+    available_memory_gb: float
+    
+class ResourceManager:
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(ResourceManager, cls).__new__(cls)
+                cls._instance._initialize()
+            return cls._instance
+    
+    def _initialize(self):
+        self.active_instances: Set[str] = set()
+        self.last_resource_check = 0
+        self.resource_check_interval = 60  # Verifica recursos a cada 60 segundos
+        self.update_system_resources()
+        
+        # Configurações base por instância
+        self.memory_per_instance_gb = 0.5  # 500MB por instância
+        self.cpu_per_instance = 0.5  # Meio núcleo por instância
+        
+        # Calcula limites iniciais
+        self._calculate_limits()
+        
+        logger.info(f"Resource Manager iniciado. Limite de instâncias: {self.max_instances}")
+    
+    def update_system_resources(self) -> SystemResources:
+        """Atualiza informações sobre recursos do sistema"""
+        cpu_cores = psutil.cpu_count(logical=True)
+        total_memory = psutil.virtual_memory().total / (1024 ** 3)  # GB
+        available_memory = psutil.virtual_memory().available / (1024 ** 3)  # GB
+        
+        self.system_resources = SystemResources(
+            cpu_cores=cpu_cores,
+            total_memory_gb=total_memory,
+            available_memory_gb=available_memory
+        )
+        
+        return self.system_resources
+    
+    def _calculate_limits(self):
+        """Calcula o número máximo de instâncias com base nos recursos"""
+        # Limite baseado na CPU
+        cpu_limit = math.floor(self.system_resources.cpu_cores / self.cpu_per_instance)
+        
+        # Limite baseado na memória
+        memory_limit = math.floor(self.system_resources.total_memory_gb / self.memory_per_instance_gb)
+        
+        # Usa o menor dos limites
+        self.max_instances = min(cpu_limit, memory_limit)
+        
+        # Garante pelo menos uma instância
+        self.max_instances = max(1, self.max_instances)
+        
+        logger.info(f"Limites atualizados - CPU: {cpu_limit}, Memória: {memory_limit}, Final: {self.max_instances}")
+    
+    async def check_resources(self):
+        """Verifica se é necessário atualizar os limites de recursos"""
+        current_time = time.time()
+        if current_time - self.last_resource_check > self.resource_check_interval:
+            self.update_system_resources()
+            self._calculate_limits()
+            self.last_resource_check = current_time
+    
+    async def acquire_instance(self, instance_id: str) -> bool:
+        """Tenta adquirir uma vaga para uma nova instância"""
+        await self.check_resources()
+        
+        with self._lock:
+            if len(self.active_instances) >= self.max_instances:
+                logger.warning(f"Limite de instâncias atingido ({self.max_instances}). Instância {instance_id} em espera.")
+                return False
+            
+            self.active_instances.add(instance_id)
+            logger.info(f"Instância {instance_id} iniciada. Total ativo: {len(self.active_instances)}/{self.max_instances}")
+            return True
+    
+    def release_instance(self, instance_id: str):
+        """Libera uma instância"""
+        with self._lock:
+            self.active_instances.discard(instance_id)
+            logger.info(f"Instância {instance_id} finalizada. Total ativo: {len(self.active_instances)}/{self.max_instances}")
 
 class AutomationError(Exception):
     pass
@@ -280,53 +374,46 @@ class PanAutomation:
                     
                     logger.info("Página carregada inicialmente")
                     
-                    try:
-                        await self.page.wait_for_selector('body', state='visible', timeout=5000)
-                        logger.info("Corpo da página visível")
-                        
-                        # Tenta lidar com o popup de cookies
-                        logger.info("Verificando popup de cookies...")
-                        cookie_button_selectors = [
-                            '#onetrust-accept-btn-handler',  # Seletor específico do botão
-                            'button[aria-label="Permitir todos os cookies"]',
-                            'button:has-text("Permitir todos os cookies")',
-                            'button:has-text("Got it!")',
-                            'button:has-text("Aceitar")',
-                            'button:has-text("Accept All")',
-                            '[aria-label="Aceitar cookies"]',
-                            '#cookie-notice button',
-                            '.cookie-consent button',
-                            'button:has-text("Ok")',
-                            'button:has-text("Entendi")',
-                            '.cookies button',
-                            '#cookies button'
-                        ]
-                        
-                        for selector in cookie_button_selectors:
-                            try:
-                                logger.info(f"Tentando clicar no botão de cookies com seletor: {selector}")
-                                cookie_button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
-                                if cookie_button:
-                                    # Tenta clicar usando diferentes estratégias
-                                    try:
-                                        await cookie_button.click()
-                                    except Exception as e:
-                                        logger.debug(f"Falha no clique direto: {str(e)}, tentando via JavaScript")
-                                        await self.page.evaluate("""(selector) => {
-                                            const button = document.querySelector(selector);
-                                            if (button) button.click();
-                                        }""", selector)
-                                    
-                                    logger.info("Popup de cookies fechado com sucesso")
-                                    await asyncio.sleep(1)  # Aguarda a animação do popup
-                                    break
-                            except Exception as e:
-                                logger.debug(f"Falha ao tentar seletor {selector}: {str(e)}")
-                                continue
-
-                    except TimeoutError:
-                        logger.warning("Corpo da página não está visível, tentando recarregar...")
-                        continue
+                    # Aguarda o corpo da página estar visível
+                    await self.page.wait_for_selector('body', state='visible', timeout=5000)
+                    logger.info("Corpo da página visível")
+                    
+                    # Trata o popup de cookies imediatamente após a página carregar
+                    logger.info("Verificando popup de cookies...")
+                    cookie_button_selectors = [
+                        '#onetrust-accept-btn-handler',  # Seletor específico do botão
+                        'button[aria-label="Permitir todos os cookies"]',
+                        'button:has-text("Permitir todos os cookies")',
+                        'button:has-text("Got it!")',
+                        'button:has-text("Aceitar")',
+                        'button:has-text("Accept All")',
+                        '[aria-label="Aceitar cookies"]'
+                    ]
+                    
+                    # Aguarda um momento para o popup aparecer
+                    await asyncio.sleep(1)
+                    
+                    for selector in cookie_button_selectors:
+                        try:
+                            logger.info(f"Tentando clicar no botão de cookies com seletor: {selector}")
+                            cookie_button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                            if cookie_button:
+                                # Tenta clicar usando diferentes estratégias
+                                try:
+                                    await cookie_button.click()
+                                except Exception as e:
+                                    logger.debug(f"Falha no clique direto: {str(e)}, tentando via JavaScript")
+                                    await self.page.evaluate("""(selector) => {
+                                        const button = document.querySelector(selector);
+                                        if (button) button.click();
+                                    }""", selector)
+                                
+                                logger.info("Popup de cookies fechado com sucesso")
+                                await asyncio.sleep(1)  # Aguarda a animação do popup
+                                break
+                        except Exception as e:
+                            logger.debug(f"Falha ao tentar seletor {selector}: {str(e)}")
+                            continue
 
                     current_url = self.page.url
                     logger.info(f"Navegação bem-sucedida. URL atual: {current_url}")
@@ -837,11 +924,17 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
     """
     Função principal que executa todo o fluxo de automação
     """
-    log_summary = []
-    start_time = time.time()
-    screenshot = None
+    resource_manager = ResourceManager()
+    
+    # Tenta adquirir uma vaga para executar
+    while not await resource_manager.acquire_instance(run_id):
+        await asyncio.sleep(5)  # Espera 5 segundos antes de tentar novamente
     
     try:
+        log_summary = []
+        start_time = time.time()
+        screenshot = None
+        
         async with PanAutomation(login_url="https://veiculos.bancopan.com.br/login") as automation:
             log_summary.append("Iniciando automação")
             
@@ -867,22 +960,6 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
                 "log_summary": "\n".join(log_summary),
                 "screenshot": screenshot
             }
-            
-    except AutomationError as e:
-        log_summary.append(f"Erro na automação: {str(e)}")
-        execution_time = time.time() - start_time
-        log_summary.append(f"Tempo total de execução: {execution_time:.2f} segundos")
-        return {
-            "result": f"Erro: {str(e)}",
-            "log_summary": "\n".join(log_summary),
-            "screenshot": screenshot
-        }
-    except Exception as e:
-        log_summary.append(f"Erro inesperado: {str(e)}")
-        execution_time = time.time() - start_time
-        log_summary.append(f"Tempo total de execução: {execution_time:.2f} segundos")
-        return {
-            "result": f"Erro: {str(e)}",
-            "log_summary": "\n".join(log_summary),
-            "screenshot": screenshot
-        } 
+    finally:
+        # Sempre libera a instância, mesmo em caso de erro
+        resource_manager.release_instance(run_id) 

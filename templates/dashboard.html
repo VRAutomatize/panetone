@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panetone Dashboard - VR Automatize</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <h1>Panetone</h1>
+                <span>by VR Automatize</span>
+            </div>
+            <button class="refresh-button" onclick="refreshData()">Atualizar</button>
+        </header>
+
+        <div class="dashboard-grid">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Instâncias Ativas</h2>
+                    <span class="status-indicator status-active"></span>
+                </div>
+                <div class="card-value" id="active-instances">0</div>
+                <div>de <span id="max-instances">0</span> disponíveis</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Uso de CPU</h2>
+                </div>
+                <div class="card-value" id="cpu-usage">0%</div>
+                <div class="chart-container">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Memória</h2>
+                </div>
+                <div class="card-value" id="memory-usage">0 GB</div>
+                <div class="chart-container">
+                    <canvas id="memoryChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Instâncias em Execução</h2>
+            </div>
+            <div class="instances-list" id="instances-list">
+                <!-- Preenchido via JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cpuChart, memoryChart;
+        const maxDataPoints = 10;
+
+        function initCharts() {
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            };
+
+            cpuChart = new Chart(document.getElementById('cpuChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        borderColor: '#FFD700',
+                        tension: 0.4,
+                        fill: false
+                    }]
+                },
+                options: chartOptions
+            });
+
+            memoryChart = new Chart(document.getElementById('memoryChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        borderColor: '#FFD700',
+                        tension: 0.4,
+                        fill: false
+                    }]
+                },
+                options: chartOptions
+            });
+        }
+
+        function updateCharts(cpuData, memoryData) {
+            const timestamp = new Date().toLocaleTimeString();
+
+            // Atualiza gráfico de CPU
+            if (cpuChart.data.labels.length > maxDataPoints) {
+                cpuChart.data.labels.shift();
+                cpuChart.data.datasets[0].data.shift();
+            }
+            cpuChart.data.labels.push(timestamp);
+            cpuChart.data.datasets[0].data.push(cpuData);
+            cpuChart.update();
+
+            // Atualiza gráfico de memória
+            if (memoryChart.data.labels.length > maxDataPoints) {
+                memoryChart.data.labels.shift();
+                memoryChart.data.datasets[0].data.shift();
+            }
+            memoryChart.data.labels.push(timestamp);
+            memoryChart.data.datasets[0].data.push(memoryData);
+            memoryChart.update();
+        }
+
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/dashboard-data');
+                const data = await response.json();
+
+                document.getElementById('active-instances').textContent = data.active_instances;
+                document.getElementById('max-instances').textContent = data.max_instances;
+                document.getElementById('cpu-usage').textContent = `${data.cpu_usage.toFixed(1)}%`;
+                document.getElementById('memory-usage').textContent = `${data.memory_usage.toFixed(1)} GB`;
+
+                updateCharts(data.cpu_usage, data.memory_usage);
+
+                // Atualiza lista de instâncias
+                const instancesList = document.getElementById('instances-list');
+                instancesList.innerHTML = '';
+                data.instances.forEach(instance => {
+                    const item = document.createElement('div');
+                    item.className = 'instance-item';
+                    item.innerHTML = `
+                        <div>
+                            <span class="status-indicator status-${instance.status}"></span>
+                            ${instance.id}
+                        </div>
+                        <div>${instance.runtime}s</div>
+                    `;
+                    instancesList.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Erro ao atualizar dados:', error);
+            }
+        }
+
+        // Inicialização
+        initCharts();
+        refreshData();
+        setInterval(refreshData, 5000); // Atualiza a cada 5 segundos
+    </script>
+</body>
+</html> 
