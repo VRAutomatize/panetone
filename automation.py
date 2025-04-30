@@ -41,58 +41,118 @@ class PanAutomation:
         self.context = None
 
     async def __aenter__(self):
+        logger.info("Iniciando Playwright e configurando navegador...")
         playwright = await async_playwright().start()
         self.browser = await playwright.chromium.launch(
             headless=True,
-            args=['--no-sandbox', '--disable-setuid-sandbox']
+            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         )
+        logger.info("Navegador Chromium iniciado com sucesso")
+        
         self.context = await self.browser.new_context(
             viewport={'width': 1280, 'height': 720},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            ignore_https_errors=True
         )
+        logger.info("Contexto do navegador criado com sucesso")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        logger.info("Finalizando recursos do navegador...")
         if self.context:
             await self.context.close()
+            logger.info("Contexto do navegador fechado")
         if self.browser:
             await self.browser.close()
+            logger.info("Navegador fechado")
 
     async def initialize(self):
         """Inicializa o navegador e cria uma nova página"""
         if not self.browser:
             raise AutomationError("Browser não inicializado")
         
+        logger.info("Criando nova página no navegador...")
         self.page = await self.context.new_page()
+        logger.info("Nova página criada com sucesso")
         
-        # Configurar timeouts
-        self.page.set_default_timeout(30000)  # 30 segundos
-        self.page.set_default_navigation_timeout(30000)
+        # Configurar timeouts mais longos
+        self.page.set_default_timeout(60000)  # 60 segundos
+        self.page.set_default_navigation_timeout(60000)
+        logger.info("Timeouts configurados: 60 segundos para navegação e operações")
 
     @retry_on_failure(max_retries=3, delay=2)
     async def login(self, login: str, senha: str) -> None:
         """Realiza o login no sistema"""
         try:
-            await self.page.goto(self.login_url, wait_until='networkidle')
-            logger.info("Navegando para página de login")
+            # Navegação com retry
+            logger.info(f"Iniciando navegação para {self.login_url}")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de navegação...")
+                    await self.page.goto(self.login_url, wait_until='networkidle', timeout=60000)
+                    current_url = self.page.url
+                    logger.info(f"Navegação bem-sucedida. URL atual: {current_url}")
+                    break
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de navegação, tentando novamente...")
+                    await asyncio.sleep(2)
+            else:
+                raise AutomationError("Falha ao carregar a página de login após várias tentativas")
 
-            # Aguarda e preenche o campo de login
-            await self.page.wait_for_selector('input[name="login"]', state="visible")
-            await self.page.fill('input[name="login"]', login)
-            logger.info("Campo de login preenchido")
+            # Aguarda e preenche o campo de login com retry
+            logger.info("Procurando campo de login...")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de localizar campo de login...")
+                    await self.page.wait_for_selector('input[name="login"]', state="visible", timeout=30000)
+                    await self.page.fill('input[name="login"]', login)
+                    logger.info("Campo de login localizado e preenchido com sucesso")
+                    break
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de login...")
+                    await asyncio.sleep(2)
+            else:
+                raise AutomationError("Falha ao preencher campo de login após várias tentativas")
 
-            # Aguarda e preenche o campo de senha
-            await self.page.wait_for_selector('input[name="password"]', state="visible")
-            await self.page.fill('input[name="password"]', senha)
-            logger.info("Campo de senha preenchido")
+            # Aguarda e preenche o campo de senha com retry
+            logger.info("Procurando campo de senha...")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de localizar campo de senha...")
+                    await self.page.wait_for_selector('input[name="password"]', state="visible", timeout=30000)
+                    await self.page.fill('input[name="password"]', senha)
+                    logger.info("Campo de senha localizado e preenchido com sucesso")
+                    break
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de senha...")
+                    await asyncio.sleep(2)
+            else:
+                raise AutomationError("Falha ao preencher campo de senha após várias tentativas")
 
-            # Clica no botão de login
-            await self.page.click('span.pan-mahoe-button__wrapper')
-            logger.info("Botão de login clicado")
+            # Clica no botão de login com retry
+            logger.info("Procurando botão de login...")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de localizar botão de login...")
+                    await self.page.wait_for_selector('span.pan-mahoe-button__wrapper', state="visible", timeout=30000)
+                    await self.page.click('span.pan-mahoe-button__wrapper')
+                    logger.info("Botão de login localizado e clicado com sucesso")
+                    break
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar botão de login...")
+                    await asyncio.sleep(2)
+            else:
+                raise AutomationError("Falha ao clicar no botão de login após várias tentativas")
 
-            # Aguarda a navegação após o login
-            await self.page.wait_for_load_state("networkidle")
-            logger.info("Login realizado com sucesso")
+            # Aguarda a navegação após o login com timeout maior
+            logger.info("Aguardando carregamento após login...")
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=60000)
+                current_url = self.page.url
+                logger.info(f"Login realizado com sucesso. URL atual: {current_url}")
+            except TimeoutError:
+                current_url = self.page.url
+                logger.warning(f"Timeout ao aguardar carregamento após login, mas continuando... URL atual: {current_url}")
 
         except TimeoutError as e:
             logger.error(f"Timeout durante o login: {str(e)}")
@@ -108,25 +168,34 @@ class PanAutomation:
         Retorna uma tupla com (resultado, log_summary)
         """
         try:
+            logger.info("Iniciando verificação de elegibilidade...")
+            current_url = self.page.url
+            logger.info(f"URL atual antes da verificação: {current_url}")
+
             # Aguarda e preenche o campo de CPF
+            logger.info("Procurando campo de CPF...")
             await self.page.wait_for_selector('input[name="cpf"]', state="visible")
             await self.page.fill('input[name="cpf"]', cpf)
-            logger.info("Campo de CPF preenchido")
+            logger.info("Campo de CPF localizado e preenchido com sucesso")
 
             # Clica no botão de avançar
+            logger.info("Procurando botão de avançar...")
             await self.page.click('div.mahoe-ripple')
-            logger.info("Botão de avançar clicado")
+            logger.info("Botão de avançar clicado com sucesso")
 
             # Aguarda o resultado aparecer
-            # Vamos esperar por qualquer um dos textos possíveis
+            logger.info("Aguardando resultado da verificação...")
             try:
                 await self.page.wait_for_selector('text="Cliente Elegível"', timeout=10000)
+                logger.info("Cliente verificado como elegível")
                 return "Cliente Elegível", "Cliente verificado como elegível"
             except TimeoutError:
                 try:
                     await self.page.wait_for_selector('text="Cliente Não Elegível"', timeout=10000)
+                    logger.info("Cliente verificado como não elegível")
                     return "Cliente Não Elegível", "Cliente verificado como não elegível"
                 except TimeoutError:
+                    logger.warning("Não foi possível determinar a elegibilidade do cliente")
                     return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente"
 
         except TimeoutError as e:
