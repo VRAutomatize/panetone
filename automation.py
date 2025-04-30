@@ -540,74 +540,109 @@ class PanAutomation:
             # Estratégias para encontrar o botão de avançar
             button_strategies = [
                 {
+                    "type": "selector",
+                    "selector": 'button[type="submit"]',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'button:has-text("Avançar")',
+                    "timeout": 5000
+                },
+                {
                     "type": "js",
                     "script": """() => {
                         const buttons = Array.from(document.querySelectorAll('button'));
-                        return buttons.find(button => {
-                            const text = button.textContent.toLowerCase();
+                        const button = buttons.find(btn => {
+                            const text = btn.textContent.toLowerCase();
                             return text.includes('avançar') || 
                                    text.includes('continuar') || 
                                    text.includes('próximo');
                         });
+                        if (button) {
+                            button.click();
+                            return true;
+                        }
+                        return null;
                     }"""
-                },
-                {
-                    "type": "selector",
-                    "selector": 'button[type="submit"]'
-                },
-                {
-                    "type": "selector",
-                    "selector": 'button:has-text("Avançar")'
-                },
-                {
-                    "type": "xpath",
-                    "xpath": "//button[contains(., 'Avançar') or contains(., 'Continuar')]"
                 }
             ]
             
             # Encontra e clica no botão
-            button = await self._find_element_smart("Botão de avançar", button_strategies)
-            await button.click()
-            logger.info("Botão de avançar clicado")
+            button_clicked = False
+            for strategy in button_strategies:
+                try:
+                    if strategy["type"] == "js":
+                        result = await self.page.evaluate(strategy["script"])
+                        if result:
+                            button_clicked = True
+                            logger.info("Botão clicado via JavaScript")
+                            break
+                    else:
+                        button = await self.page.wait_for_selector(
+                            strategy["selector"],
+                            timeout=strategy.get("timeout", 5000)
+                        )
+                        if button:
+                            await button.click()
+                            button_clicked = True
+                            logger.info(f"Botão clicado via seletor: {strategy['selector']}")
+                            break
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia de clique: {str(e)}")
+                    continue
+
+            if not button_clicked:
+                raise AutomationError("Não foi possível clicar no botão de avançar")
             
             # Aguarda o resultado
             await asyncio.sleep(3)
             
+            # Captura screenshot antes de procurar o resultado
+            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
+            
             # Estratégias para encontrar o resultado
             result_strategies = [
+                {
+                    "type": "selector",
+                    "selector": '[data-testid*="eligibility"], [data-testid*="status"]',
+                    "timeout": 5000
+                },
                 {
                     "type": "js",
                     "script": """() => {
                         const elements = Array.from(document.querySelectorAll('*'));
                         const element = elements.find(el => {
-                            const text = el.textContent.toLowerCase();
+                            const text = (el.textContent || '').toLowerCase();
                             return text.includes('elegível') || text.includes('elegivel');
                         });
                         return element ? element.textContent.trim() : null;
                     }"""
-                },
-                {
-                    "type": "selector",
-                    "selector": '[data-testid*="eligibility"], [data-testid*="status"]'
-                },
-                {
-                    "type": "xpath",
-                    "xpath": "//*[contains(text(), 'elegível') or contains(text(), 'Elegível')]"
                 }
             ]
             
             # Tenta encontrar o resultado
-            result_element = await self._find_element_smart("Resultado de elegibilidade", result_strategies, required=False)
-            
             result_text = "Resultado Indeterminado"
-            if result_element:
-                if isinstance(result_element, str):  # Resultado do JavaScript
-                    result_text = result_element
-                else:  # Elemento do Playwright
-                    result_text = await result_element.text_content()
-                    result_text = result_text.strip()
+            for strategy in result_strategies:
+                try:
+                    if strategy["type"] == "js":
+                        result = await self.page.evaluate(strategy["script"])
+                        if result:
+                            result_text = result
+                            break
+                    else:
+                        element = await self.page.wait_for_selector(
+                            strategy["selector"],
+                            timeout=strategy.get("timeout", 5000)
+                        )
+                        if element:
+                            result_text = await element.text_content()
+                            result_text = result_text.strip()
+                            break
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia de busca de resultado: {str(e)}")
+                    continue
 
-            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
             return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_base64
 
         except Exception as e:
