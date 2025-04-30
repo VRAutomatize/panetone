@@ -10,8 +10,10 @@ WORKDIR /app
 # Cópia dos arquivos de dependências
 COPY requirements.txt .
 
-# Instalação das dependências Python
-RUN pip install --no-cache-dir -r requirements.txt
+# Instalação das dependências Python e do Playwright
+RUN pip install --no-cache-dir -r requirements.txt && \
+    playwright install && \
+    playwright install-deps
 
 # Cópia do código da aplicação
 COPY . .
