@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Any
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError
 from functools import wraps
 import time
@@ -430,6 +430,43 @@ class PanAutomation:
             logger.error(f"Erro durante o login: {str(e)}")
             raise AutomationError(f"Falha no login: {str(e)}")
 
+    async def _find_element_smart(self, context_description: str, strategies: List[Dict[str, Any]], required: bool = True) -> Optional[Any]:
+        """
+        Método inteligente para encontrar elementos usando múltiplas estratégias
+        """
+        for strategy in strategies:
+            try:
+                if strategy.get("type") == "js":
+                    # Estratégia JavaScript
+                    result = await self.page.evaluate(strategy["script"])
+                    if result:
+                        logger.info(f"{context_description} encontrado via JavaScript")
+                        return result
+                elif strategy.get("type") == "selector":
+                    # Estratégia de seletor
+                    element = await self.page.wait_for_selector(
+                        strategy["selector"],
+                        timeout=strategy.get("timeout", 2000)
+                    )
+                    if element:
+                        logger.info(f"{context_description} encontrado via seletor: {strategy['selector']}")
+                        return element
+                elif strategy.get("type") == "xpath":
+                    # Estratégia XPath
+                    element = await self.page.wait_for_selector(
+                        f"xpath={strategy['xpath']}",
+                        timeout=strategy.get("timeout", 2000)
+                    )
+                    if element:
+                        logger.info(f"{context_description} encontrado via XPath")
+                        return element
+            except Exception as e:
+                continue
+        
+        if required:
+            raise AutomationError(f"Não foi possível encontrar {context_description}")
+        return None
+
     @retry_on_failure(max_retries=3, delay=2)
     async def verificar_elegibilidade(self, cpf: str) -> Tuple[str, str, Optional[str]]:
         """
@@ -438,188 +475,143 @@ class PanAutomation:
         """
         try:
             logger.info("Iniciando verificação de elegibilidade...")
-            current_url = self.page.url
-            logger.info(f"URL atual antes da verificação: {current_url}")
-
-            # Lista de possíveis seletores para o campo de CPF
-            cpf_selectors = [
-                'input[formcontrolname="cpf"]',
-                'input[name="cpf"]',
-                'input[placeholder="000.000.000-00"]'
-            ]
-
-            # Aguarda e preenche o campo de CPF
-            logger.info("Procurando campo de CPF...")
-            for attempt in range(3):
-                try:
-                    logger.info(f"Tentativa {attempt + 1} de localizar campo de CPF...")
-                    
-                    # Aguarda explicitamente o campo aparecer
-                    await self.page.wait_for_selector('input[formcontrolname="cpf"]', timeout=5000)
-                    
-                    # Tenta preencher usando JavaScript primeiro
-                    try:
-                        await self.page.evaluate('''(cpf) => {
-                            const input = document.querySelector('input[formcontrolname="cpf"]');
-                            if (input) {
-                                input.value = cpf;
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                                input.dispatchEvent(new Event('change', { bubbles: true }));
-                                input.dispatchEvent(new Event('blur', { bubbles: true }));
-                            }
-                        }''', cpf)
-                        logger.info("CPF preenchido via JavaScript")
-                        break
-                    except Exception as e:
-                        logger.warning(f"Falha ao preencher CPF via JavaScript: {str(e)}")
-                    
-                    # Se falhar, tenta o método tradicional
-                    cpf_field = await self._try_selectors(cpf_selectors)
-                    
-                    if not cpf_field:
-                        raise TimeoutError("Campo de CPF não encontrado com nenhum seletor")
-                    
-                    # Tenta preencher usando diferentes estratégias
-                    if await self._try_fill_input(cpf_field, cpf, is_cpf=True):
-                        logger.info("Campo de CPF localizado e preenchido com sucesso")
-                        break
-                    else:
-                        raise TimeoutError("Não foi possível preencher o campo de CPF")
-                except TimeoutError:
-                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de CPF...")
-                    if attempt == 1:
-                        logger.info("Tentando recarregar a página...")
-                        await self.page.reload(wait_until='domcontentloaded')
-                        await asyncio.sleep(1)
-                    else:
-                        await asyncio.sleep(1)
-            else:
-                raise AutomationError("Falha ao preencher campo de CPF após várias tentativas")
-
-            # Lista de possíveis seletores para o botão de avançar
-            button_selectors = [
-                'button[type="submit"]',
-                'button.pan-mahoe-button',
-                'button:has-text("Avançar")',
-                'button:has-text("Continuar")',
-                'button:has-text("Próximo")',
-                'button.next-button',
-                'button[formcontrolname="submit"]',
-                'span.pan-mahoe-button__wrapper',
-                '.pan-mahoe-button__wrapper',
-                'button.pan-mahoe-button__wrapper',
-                'div.mahoe-ripple'
-            ]
-
-            # Clica no botão de avançar
-            logger.info("Procurando botão de avançar...")
-            for attempt in range(3):
-                try:
-                    logger.info(f"Tentativa {attempt + 1} de localizar botão de avançar...")
-                    next_button = await self._try_selectors(button_selectors)
-                    
-                    if not next_button:
-                        raise TimeoutError("Botão de avançar não encontrado com nenhum seletor")
-                    
-                    # Tenta clicar usando diferentes estratégias
-                    if await self._try_click_button(next_button):
-                        logger.info("Botão de avançar localizado e clicado com sucesso")
-                        break
-                    else:
-                        raise TimeoutError("Não foi possível clicar no botão de avançar")
-                except TimeoutError:
-                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar botão de avançar...")
-                    if attempt == 1:
-                        logger.info("Tentando recarregar a página...")
-                        await self.page.reload(wait_until='domcontentloaded')
-                        await asyncio.sleep(1)
-                    else:
-                        await asyncio.sleep(1)
-            else:
-                raise AutomationError("Falha ao clicar no botão de avançar após várias tentativas")
-
-            # Aguarda o resultado aparecer
-            logger.info("Aguardando resultado da verificação...")
             
-            # Lista de possíveis seletores para mensagens de resultado
-            result_selectors = [
-                'text="Cliente Elegível"',
-                'text="Cliente Não Elegível"',
-                '*:has-text("Cliente Elegível")',
-                '*:has-text("Cliente Não Elegível")',
-                '.resultado-elegibilidade',
-                '.mensagem-resultado'
-            ]
-
-            try:
-                # Aguarda um tempo para garantir que a página carregou completamente
-                await asyncio.sleep(2)
-                
-                # Captura o estado atual da página
-                logger.info("Verificando estado atual da página...")
-                current_url = self.page.url
-                logger.info(f"URL após submissão do CPF: {current_url}")
-                
-                page_content = await self.page.content()
-                if "erro" in page_content.lower() or "error" in page_content.lower():
-                    logger.warning("Detectada possível mensagem de erro na página")
-                
-                # Tenta encontrar qualquer mensagem de resultado
-                for selector in result_selectors:
-                    try:
-                        element = await self.page.wait_for_selector(selector, timeout=5000)
-                        if element:
-                            result_text = await element.text_content()
-                            logger.info(f"Texto encontrado com seletor {selector}: {result_text}")
-                            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
-                            return result_text.strip(), f"Cliente verificado como {result_text.strip().lower()}", screenshot_base64
-                    except Exception as e:
-                        logger.debug(f"Seletor {selector} não encontrou resultado: {str(e)}")
-                
-                # Se não encontrou resultado específico, vamos capturar mais informações
-                logger.warning("Nenhum resultado específico encontrado, coletando informações adicionais...")
-                
-                # Tenta encontrar qualquer mensagem ou texto relevante
-                try:
-                    # Procura por textos que possam indicar o status
-                    texts = await self.page.evaluate('''() => {
-                        const elements = document.querySelectorAll('*');
-                        return Array.from(elements)
-                            .map(el => el.textContent)
-                            .filter(text => text && text.trim())
-                            .filter(text => 
-                                text.toLowerCase().includes('elegível') ||
-                                text.toLowerCase().includes('elegivel') ||
-                                text.toLowerCase().includes('status') ||
-                                text.toLowerCase().includes('resultado') ||
-                                text.toLowerCase().includes('erro') ||
-                                text.toLowerCase().includes('aguarde')
+            # Estratégias para encontrar e preencher o campo CPF
+            cpf_strategies = [
+                {
+                    "type": "js",
+                    "script": """() => {
+                        // Procura por input com atributos específicos do Angular
+                        const inputs = Array.from(document.querySelectorAll('input'));
+                        return inputs.find(input => {
+                            const attrs = input.attributes;
+                            return Array.from(attrs).some(attr => 
+                                attr.name.includes('formcontrol') && 
+                                (attr.value.toLowerCase().includes('cpf') || 
+                                 input.placeholder.includes('000.000.000-00'))
                             );
-                    }''')
-                    
-                    if texts:
-                        logger.info("Textos relevantes encontrados na página:")
-                        for text in texts:
-                            logger.info(f"- {text.strip()}")
-                except Exception as e:
-                    logger.error(f"Erro ao buscar textos na página: {str(e)}")
+                        });
+                    }"""
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[formcontrolname="cpf"]'
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[placeholder="000.000.000-00"]'
+                },
+                {
+                    "type": "xpath",
+                    "xpath": "//input[contains(@class, 'cpf') or contains(@name, 'cpf')]"
+                }
+            ]
+            
+            # Encontra o campo CPF
+            cpf_element = await self._find_element_smart("Campo CPF", cpf_strategies)
+            
+            # Preenche o CPF
+            try:
+                await self.page.evaluate("""(cpf) => {
+                    const input = document.querySelector('input[formcontrolname="cpf"]');
+                    if (input) {
+                        input.value = '';
+                        input.dispatchEvent(new Event('input'));
+                        
+                        const cpfDigits = cpf.replace(/\D/g, '');
+                        for (let i = 0; i < cpfDigits.length; i++) {
+                            setTimeout(() => {
+                                input.value = cpfDigits.substring(0, i + 1);
+                                input.dispatchEvent(new Event('input'));
+                                input.dispatchEvent(new Event('change'));
+                            }, i * 100);
+                        }
+                    }
+                }""", cpf)
+                await asyncio.sleep(2)
+            except Exception:
+                # Se falhar JavaScript, tenta método tradicional
+                await cpf_element.fill("")
+                await asyncio.sleep(0.5)
+                await cpf_element.type(cpf, delay=100)
+            
+            logger.info("CPF preenchido com sucesso")
 
-                # Captura screenshot em caso de falha
-                screenshot_base64 = await self._capture_screenshot("verificacao_falha")
-                
-                return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente. Verifique o screenshot para mais detalhes.", screenshot_base64
+            # Estratégias para encontrar o botão de avançar
+            button_strategies = [
+                {
+                    "type": "js",
+                    "script": """() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        return buttons.find(button => {
+                            const text = button.textContent.toLowerCase();
+                            return text.includes('avançar') || 
+                                   text.includes('continuar') || 
+                                   text.includes('próximo');
+                        });
+                    }"""
+                },
+                {
+                    "type": "selector",
+                    "selector": 'button[type="submit"]'
+                },
+                {
+                    "type": "selector",
+                    "selector": 'button:has-text("Avançar")'
+                },
+                {
+                    "type": "xpath",
+                    "xpath": "//button[contains(., 'Avançar') or contains(., 'Continuar')]"
+                }
+            ]
+            
+            # Encontra e clica no botão
+            button = await self._find_element_smart("Botão de avançar", button_strategies)
+            await button.click()
+            logger.info("Botão de avançar clicado")
+            
+            # Aguarda o resultado
+            await asyncio.sleep(3)
+            
+            # Estratégias para encontrar o resultado
+            result_strategies = [
+                {
+                    "type": "js",
+                    "script": """() => {
+                        const elements = Array.from(document.querySelectorAll('*'));
+                        const element = elements.find(el => {
+                            const text = el.textContent.toLowerCase();
+                            return text.includes('elegível') || text.includes('elegivel');
+                        });
+                        return element ? element.textContent.trim() : null;
+                    }"""
+                },
+                {
+                    "type": "selector",
+                    "selector": '[data-testid*="eligibility"], [data-testid*="status"]'
+                },
+                {
+                    "type": "xpath",
+                    "xpath": "//*[contains(text(), 'elegível') or contains(text(), 'Elegível')]"
+                }
+            ]
+            
+            # Tenta encontrar o resultado
+            result_element = await self._find_element_smart("Resultado de elegibilidade", result_strategies, required=False)
+            
+            result_text = "Resultado Indeterminado"
+            if result_element:
+                if isinstance(result_element, str):  # Resultado do JavaScript
+                    result_text = result_element
+                else:  # Elemento do Playwright
+                    result_text = await result_element.text_content()
+                    result_text = result_text.strip()
 
-            except TimeoutError:
-                logger.warning("Timeout ao aguardar resultado da verificação")
-                screenshot_base64 = await self._capture_screenshot("timeout_verificacao")
-                return "Timeout", "Timeout ao aguardar resultado da verificação. Verifique o screenshot para mais detalhes.", screenshot_base64
+            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
+            return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_base64
 
-        except TimeoutError as e:
-            logger.error(f"Timeout durante verificação de elegibilidade: {str(e)}")
-            screenshot_base64 = await self._capture_screenshot("erro_verificacao")
-            raise AutomationError("Timeout ao tentar verificar elegibilidade")
         except Exception as e:
-            logger.error(f"Erro durante verificação de elegibilidade: {str(e)}")
+            logger.error(f"Erro durante verificação: {str(e)}")
             screenshot_base64 = await self._capture_screenshot("erro_verificacao")
             raise AutomationError(f"Falha na verificação: {str(e)}")
 
