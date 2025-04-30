@@ -283,6 +283,47 @@ class PanAutomation:
                     try:
                         await self.page.wait_for_selector('body', state='visible', timeout=5000)
                         logger.info("Corpo da página visível")
+                        
+                        # Tenta lidar com o popup de cookies
+                        logger.info("Verificando popup de cookies...")
+                        cookie_button_selectors = [
+                            '#onetrust-accept-btn-handler',  # Seletor específico do botão
+                            'button[aria-label="Permitir todos os cookies"]',
+                            'button:has-text("Permitir todos os cookies")',
+                            'button:has-text("Got it!")',
+                            'button:has-text("Aceitar")',
+                            'button:has-text("Accept All")',
+                            '[aria-label="Aceitar cookies"]',
+                            '#cookie-notice button',
+                            '.cookie-consent button',
+                            'button:has-text("Ok")',
+                            'button:has-text("Entendi")',
+                            '.cookies button',
+                            '#cookies button'
+                        ]
+                        
+                        for selector in cookie_button_selectors:
+                            try:
+                                logger.info(f"Tentando clicar no botão de cookies com seletor: {selector}")
+                                cookie_button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                                if cookie_button:
+                                    # Tenta clicar usando diferentes estratégias
+                                    try:
+                                        await cookie_button.click()
+                                    except Exception as e:
+                                        logger.debug(f"Falha no clique direto: {str(e)}, tentando via JavaScript")
+                                        await self.page.evaluate("""(selector) => {
+                                            const button = document.querySelector(selector);
+                                            if (button) button.click();
+                                        }""", selector)
+                                    
+                                    logger.info("Popup de cookies fechado com sucesso")
+                                    await asyncio.sleep(1)  # Aguarda a animação do popup
+                                    break
+                            except Exception as e:
+                                logger.debug(f"Falha ao tentar seletor {selector}: {str(e)}")
+                                continue
+
                     except TimeoutError:
                         logger.warning("Corpo da página não está visível, tentando recarregar...")
                         continue
@@ -477,6 +518,46 @@ class PanAutomation:
         try:
             logger.info("Iniciando verificação de elegibilidade...")
             
+            # Tenta lidar com o popup de cookies primeiro
+            logger.info("Verificando popup de cookies...")
+            cookie_button_selectors = [
+                '#onetrust-accept-btn-handler',  # Seletor específico do botão
+                'button[aria-label="Permitir todos os cookies"]',
+                'button:has-text("Permitir todos os cookies")',
+                'button:has-text("Got it!")',
+                'button:has-text("Aceitar")',
+                'button:has-text("Accept All")',
+                '[aria-label="Aceitar cookies"]',
+                '#cookie-notice button',
+                '.cookie-consent button',
+                'button:has-text("Ok")',
+                'button:has-text("Entendi")',
+                '.cookies button',
+                '#cookies button'
+            ]
+            
+            for selector in cookie_button_selectors:
+                try:
+                    logger.info(f"Tentando clicar no botão de cookies com seletor: {selector}")
+                    cookie_button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                    if cookie_button:
+                        # Tenta clicar usando diferentes estratégias
+                        try:
+                            await cookie_button.click()
+                        except Exception as e:
+                            logger.debug(f"Falha no clique direto: {str(e)}, tentando via JavaScript")
+                            await self.page.evaluate("""(selector) => {
+                                const button = document.querySelector(selector);
+                                if (button) button.click();
+                            }""", selector)
+                        
+                        logger.info("Popup de cookies fechado com sucesso")
+                        await asyncio.sleep(1)  # Aguarda a animação do popup
+                        break
+                except Exception as e:
+                    logger.debug(f"Falha ao tentar seletor {selector}: {str(e)}")
+                    continue
+
             # Estratégias para encontrar e preencher o campo CPF
             cpf_strategies = [
                 {
