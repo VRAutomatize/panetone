@@ -1,18 +1,8 @@
-FROM python:3.10-slim
+FROM mcr.microsoft.com/playwright/python:v1.41.0-focal
 
 # Configuração de variáveis de ambiente
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
-
-# Instalação de dependências do sistema
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Instalação do Playwright e suas dependências
-RUN pip install playwright && \
-    playwright install --with-deps chromium
 
 # Configuração do diretório de trabalho
 WORKDIR /app
