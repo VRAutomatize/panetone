@@ -473,6 +473,7 @@ class PanAutomation:
         Verifica a elegibilidade do cliente usando o CPF
         Retorna uma tupla com (resultado, log_summary, screenshot_base64)
         """
+        screenshot_base64 = None
         try:
             logger.info("Iniciando verificação de elegibilidade...")
             
@@ -613,7 +614,12 @@ class PanAutomation:
             await asyncio.sleep(3)
             
             # Captura screenshot antes de procurar o resultado
+            logger.info("Capturando screenshot do resultado...")
             screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
+            if not screenshot_base64:
+                logger.warning("Screenshot não foi capturado!")
+            else:
+                logger.info("Screenshot capturado e codificado com sucesso")
             
             # Estratégias para encontrar o resultado
             result_strategies = [
@@ -657,19 +663,26 @@ class PanAutomation:
                     logger.debug(f"Falha na estratégia de busca de resultado: {str(e)}")
                     continue
 
+            # Garante que o screenshot seja retornado
+            if not screenshot_base64:
+                logger.warning("Tentando capturar screenshot novamente antes de retornar...")
+                screenshot_base64 = await self._capture_screenshot("resultado_final")
+
             return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_base64
 
         except Exception as e:
             logger.error(f"Erro durante verificação: {str(e)}")
-            screenshot_base64 = await self._capture_screenshot("erro_verificacao")
+            if not screenshot_base64:
+                logger.info("Tentando capturar screenshot de erro...")
+                screenshot_base64 = await self._capture_screenshot("erro_verificacao")
             raise AutomationError(f"Falha na verificação: {str(e)}")
 
-    async def _capture_screenshot(self, prefix: str) -> str:
+    async def _capture_screenshot(self, prefix: str) -> Optional[str]:
         """
         Captura screenshot da página atual e retorna como base64
         """
         try:
-            logger.info(f"Capturando screenshot ({prefix})...")
+            logger.info(f"Iniciando captura do screenshot ({prefix})...")
             screenshot_bytes = await self.page.screenshot(
                 full_page=True,
                 type='jpeg',
@@ -677,7 +690,7 @@ class PanAutomation:
             )
             import base64
             screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-            logger.info(f"Screenshot capturado com sucesso ({prefix})")
+            logger.info(f"Screenshot capturado com sucesso ({prefix}). Tamanho: {len(screenshot_base64)} caracteres")
             return screenshot_base64
         except Exception as e:
             logger.error(f"Erro ao capturar screenshot: {str(e)}")
@@ -703,6 +716,11 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
             
             result, verification_log, screenshot = await automation.verificar_elegibilidade(cpf)
             log_summary.append(verification_log)
+            
+            if screenshot:
+                logger.info("Screenshot capturado com sucesso e pronto para retorno")
+            else:
+                logger.warning("Nenhum screenshot disponível para retorno")
             
             execution_time = time.time() - start_time
             log_summary.append(f"Tempo total de execução: {execution_time:.2f} segundos")
