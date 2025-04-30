@@ -398,31 +398,112 @@ class PanAutomation:
             current_url = self.page.url
             logger.info(f"URL atual antes da verificação: {current_url}")
 
+            # Lista de possíveis seletores para o campo de CPF
+            cpf_selectors = [
+                'input.mh-input-element.pan-mahoe-input-element[formcontrolname="cpf"]',
+                'input[formcontrolname="cpf"]',
+                'input[name="cpf"]',
+                'input[placeholder="000.000.000-00"]',
+                'input#cpf'
+            ]
+
             # Aguarda e preenche o campo de CPF
             logger.info("Procurando campo de CPF...")
-            await self.page.wait_for_selector('input[name="cpf"]', state="visible")
-            await self.page.fill('input[name="cpf"]', cpf)
-            logger.info("Campo de CPF localizado e preenchido com sucesso")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de localizar campo de CPF...")
+                    cpf_field = await self._try_selectors(cpf_selectors)
+                    
+                    if not cpf_field:
+                        raise TimeoutError("Campo de CPF não encontrado com nenhum seletor")
+                    
+                    if await self._try_fill_input(cpf_field, cpf):
+                        logger.info("Campo de CPF localizado e preenchido com sucesso")
+                        break
+                    else:
+                        raise TimeoutError("Não foi possível preencher o campo de CPF")
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de CPF...")
+                    if attempt == 1:
+                        logger.info("Tentando recarregar a página...")
+                        await self.page.reload(wait_until='domcontentloaded')
+                        await asyncio.sleep(1)
+                    else:
+                        await asyncio.sleep(1)
+            else:
+                raise AutomationError("Falha ao preencher campo de CPF após várias tentativas")
+
+            # Lista de possíveis seletores para o botão de avançar
+            button_selectors = [
+                'button[type="submit"]',
+                'button.pan-mahoe-button',
+                'button:has-text("Avançar")',
+                'button:has-text("Continuar")',
+                'button:has-text("Próximo")',
+                'button.next-button',
+                'button[formcontrolname="submit"]',
+                'span.pan-mahoe-button__wrapper',
+                '.pan-mahoe-button__wrapper',
+                'button.pan-mahoe-button__wrapper',
+                'div.mahoe-ripple'
+            ]
 
             # Clica no botão de avançar
             logger.info("Procurando botão de avançar...")
-            await self.page.click('div.mahoe-ripple')
-            logger.info("Botão de avançar clicado com sucesso")
+            for attempt in range(3):
+                try:
+                    logger.info(f"Tentativa {attempt + 1} de localizar botão de avançar...")
+                    next_button = await self._try_selectors(button_selectors)
+                    
+                    if not next_button:
+                        raise TimeoutError("Botão de avançar não encontrado com nenhum seletor")
+                    
+                    # Tenta clicar usando diferentes estratégias
+                    if await self._try_click_button(next_button):
+                        logger.info("Botão de avançar localizado e clicado com sucesso")
+                        break
+                    else:
+                        raise TimeoutError("Não foi possível clicar no botão de avançar")
+                except TimeoutError:
+                    logger.warning(f"Timeout na tentativa {attempt + 1} de localizar botão de avançar...")
+                    if attempt == 1:
+                        logger.info("Tentando recarregar a página...")
+                        await self.page.reload(wait_until='domcontentloaded')
+                        await asyncio.sleep(1)
+                    else:
+                        await asyncio.sleep(1)
+            else:
+                raise AutomationError("Falha ao clicar no botão de avançar após várias tentativas")
 
             # Aguarda o resultado aparecer
             logger.info("Aguardando resultado da verificação...")
+            
+            # Lista de possíveis seletores para mensagens de resultado
+            result_selectors = [
+                'text="Cliente Elegível"',
+                'text="Cliente Não Elegível"',
+                '*:has-text("Cliente Elegível")',
+                '*:has-text("Cliente Não Elegível")',
+                '.resultado-elegibilidade',
+                '.mensagem-resultado'
+            ]
+
             try:
-                await self.page.wait_for_selector('text="Cliente Elegível"', timeout=10000)
-                logger.info("Cliente verificado como elegível")
-                return "Cliente Elegível", "Cliente verificado como elegível"
+                for selector in result_selectors:
+                    try:
+                        await self.page.wait_for_selector(selector, timeout=10000)
+                        result_text = await self.page.evaluate(f'document.querySelector("{selector}").textContent')
+                        logger.info(f"Resultado encontrado: {result_text}")
+                        return result_text.strip(), f"Cliente verificado como {result_text.strip().lower()}"
+                    except:
+                        continue
+                
+                logger.warning("Não foi possível determinar a elegibilidade do cliente")
+                return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente"
+
             except TimeoutError:
-                try:
-                    await self.page.wait_for_selector('text="Cliente Não Elegível"', timeout=10000)
-                    logger.info("Cliente verificado como não elegível")
-                    return "Cliente Não Elegível", "Cliente verificado como não elegível"
-                except TimeoutError:
-                    logger.warning("Não foi possível determinar a elegibilidade do cliente")
-                    return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente"
+                logger.warning("Timeout ao aguardar resultado da verificação")
+                return "Timeout", "Timeout ao aguardar resultado da verificação"
 
         except TimeoutError as e:
             logger.error(f"Timeout durante verificação de elegibilidade: {str(e)}")
