@@ -159,6 +159,61 @@ class PanAutomation:
                 continue
         return None
 
+    async def _try_click_button(self, element, max_attempts: int = 3) -> bool:
+        """
+        Tenta clicar em um botão usando diferentes estratégias
+        """
+        for attempt in range(max_attempts):
+            try:
+                # Tenta rolar até o elemento primeiro
+                await element.scroll_into_view_if_needed()
+                await asyncio.sleep(0.5)
+
+                # Estratégia 1: Clique direto do Playwright
+                try:
+                    await element.click(timeout=5000)
+                    return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 1 (click direto): {str(e)}")
+
+                # Estratégia 2: Clique via JavaScript
+                try:
+                    await element.evaluate('(element) => element.click()')
+                    return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 2 (JavaScript click): {str(e)}")
+
+                # Estratégia 3: Procurar o botão pai se for um span
+                try:
+                    button = await element.evaluate('(element) => element.closest("button")')
+                    if button:
+                        await self.page.evaluate('(button) => button.click()', button)
+                        return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 3 (botão pai): {str(e)}")
+
+                # Estratégia 4: Dispatch de eventos
+                try:
+                    await element.evaluate('''(element) => {
+                        element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                        element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    }''')
+                    return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 4 (dispatch eventos): {str(e)}")
+
+                if attempt < max_attempts - 1:
+                    logger.warning(f"Tentativa {attempt + 1} de clicar falhou, tentando novamente...")
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"Erro ao tentar clicar: {str(e)}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(1)
+                continue
+        
+        return False
+
     @retry_on_failure(max_retries=3, delay=1)
     async def login(self, login: str, senha: str) -> None:
         """Realiza o login no sistema"""
@@ -276,13 +331,16 @@ class PanAutomation:
 
             # Lista de possíveis seletores para o botão de login
             button_selectors = [
-                'span.pan-mahoe-button__wrapper',
                 'button[type="submit"]',
+                'button.pan-mahoe-button',
                 'button:has-text("Entrar")',
                 'button:has-text("Login")',
                 'button:has-text("Acessar")',
                 'button.login-button',
-                'button[formcontrolname="submit"]'
+                'button[formcontrolname="submit"]',
+                'span.pan-mahoe-button__wrapper',
+                '.pan-mahoe-button__wrapper',
+                'button.pan-mahoe-button__wrapper'
             ]
 
             # Clica no botão de login com retry
@@ -295,9 +353,12 @@ class PanAutomation:
                     if not login_button:
                         raise TimeoutError("Botão de login não encontrado com nenhum seletor")
                     
-                    await login_button.click()
-                    logger.info("Botão de login localizado e clicado com sucesso")
-                    break
+                    # Tenta clicar usando diferentes estratégias
+                    if await self._try_click_button(login_button):
+                        logger.info("Botão de login localizado e clicado com sucesso")
+                        break
+                    else:
+                        raise TimeoutError("Não foi possível clicar no botão de login")
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar botão de login...")
                     if attempt == 1:
