@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panetone Dashboard - VR Automatize</title>
+    <title>Panetone - VR Automatize</title>
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAFJElEQVR4nL2XW4iVVRTHf2vvb59zZsYZx/E2mqRTkIQFRRcqpKALdKGHMqKIIKKXeuqhh4QKIh+6PBQFRUTPUhB0I6KILhYUlVgKXcyxdLqMjjPOnO/sb/fwnW/OnDkzc5zRDw777L3X+q//Wmvvtb7P0ORh1kYyKxEEwT7gLuBi4BRwH7D7XOdyQcCxwPPAEiAGbgQGgbXnOpdzBn4PuKVQ3wLsAZb9H8A3Arfn6hbgIHAKuOJ8gK8GHgKuKrQ/AewEdgHvnQ/wFcBbQFbh+xwYBZ4D3jxX8GnA48A9QK3Q/hWwGXgF+AQYOVfwFcBOoL/Q/iWwAngb+AYYOx/gAI8CD+T6j8DTwOvAEHAMqJ8v8OuBZ4HFuf4VsA7YD/wCHD9f4AD3A48BPbn+FbAG+Bj4FfjzfIHfCGwFFub6IeBB4D3gd+DU+QK/BdgGzM31H4F1wIfAn8CJ8wU+H3gJWJbrPwMbgPeB48Df5wt8GvAEcDfQmdt+ADYB7wDDwMj5AgdYCWwHZub6j8B64GPgb2DofIEvBF4GluT6L8B64APgKHDyfIHPAJ4C7gLquf49sBn4FPgDOH2+wAFWAzuA6bn+HbAWeB84Apw6X+CLgFeAq3P9e2AtsAc4DJw5X+CzgGeAO4Ek134AtgAfAX8Bg+cLvAfYCNwHdOS2Q8AjwIfAMeD0+QIHuA3YDvTl+mFgE7AbOAL8d77AlwKvAtfk+q/ARmAXcBA4cb7AZwPPAquANLcdBDYD7wJ/AKfOF3gPsBm4F+jKbT8BjwLvAEeB4+cLHGA5sA2YlevHgA3Ah8DvwOD5Al8CvA5cm+tHgE3Ap8DPwN/nC3wOsA1YCcS57QiwHvgY+A04dr7Au4H1wANAV277GdgKfAAcBE6eL3CAZcB2YG6uHwc2Ah8APwHHzxf4YuB14Lpc/w3YBOwGfgROni/wWcA24A4gzW2/AJuBPcBh4Mz5Au8C1gAPAz257VdgK7ATOAD8e77AAW4FXgPm5/oJYCPwCfAb8M/5Al8EvAncmOtDwBZgJ3AIOH2+wGcCLwB3A0lu+w3YCuwCfgL+OV/gncBq4BGgO7f9DmwDdgM/AifOFzjAEmAHMD/XTwFbgXeB/cDQ+QJfALwF3JTrZ4BtwLvAD8Dp8wXeCdwPrAW6c9sQsB3YDRwATp0vcIAbgNeB63P9NLAN2AX8CJw8X+DzgDeBW3L9DLAd2AnsB06fL/AasApYD/Tmtn+AHcBu4CBw5nyBA1wPvAEsyvXTwA5gD3AQOH6+wOcCbwC35/oZ4EVgN3AIOHW+wDuAu4DHgb7cNgy8BOwBvgdGzhc4wHXAm8CSXB8GXgY+Aw4DJ84XeD+wA7gr10eAV4DPgO+AU+cLvA1YCWwA+nPbMPAq8DlwBDh2vsCvBd4Grsv1EeA14AvgO+Cf8wXeB2wHVgNZbhsBXge+AL4FTpwv8DZgBbAR6MttI8AbwJfAt8Dx8wV+DfAOcEOujwJvAV8DB4Ch8wXeC2wB7s/1UeAt4GvgW+DY+QJPgNuBTUB/bhsDdgJfA98Ax88XeA+wGXgQqOW2MeBt4BvgO+DY+QJPgNuATcDM3DYG7AK+Ab4HjnLWY9QkxACxKgnQDgwAA0CaP7QXGKXxPxDnfZPcN8n7O/K+WQFsCtAFzM/H9gBJbusAZuTX7twWAZ1AV65n+f0p0JvrEY3/hBToym0dQHc+vj0fG+Vju3N7nM/Rm/dLgf8A9hGjGZcUg+YAAAAASUVORK5CYII=">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -13,7 +14,10 @@
         <div class="header">
             <div class="logo">
                 <img src="https://res.cloudinary.com/dm7cgwtmp/image/upload/v1740567841/VR%20Automatize/logoVR.png" alt="Logo VR Automatize"/>
-                <h1>Panetone by VR Automatize</h1>
+                <div class="title-container">
+                    <h1>Panetone</h1>
+                    <h2>by VR Automatize</h2>
+                </div>
             </div>
             <button class="refresh-button" onclick="refreshData()">Atualizar</button>
         </div>
@@ -24,14 +28,22 @@
                     <h2 class="card-title">
                         <span class="title-text">
                             <span class="icon icon-cash"></span>
-                            Instâncias Ativas
+                            Status das Instâncias
                         </span>
-                        <span class="item-count" id="active-instances">0</span>
                     </h2>
                 </div>
-                <div class="card-value" id="max-instances">0</div>
+                <div class="instances-status">
+                    <div class="status-item">
+                        <span class="label">Ativas:</span>
+                        <span class="value" id="active-instances">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Disponíveis:</span>
+                        <span class="value" id="max-instances">0</span>
+                    </div>
+                </div>
                 <div class="metric-details">
-                    <p><span>Status:</span> <span>Atualizado</span></p>
+                    <p><span>Última atualização:</span> <span id="last-update">Agora</span></p>
                 </div>
             </div>
 
@@ -84,6 +96,7 @@
     <script>
         let cpuChart, memoryChart;
         const maxDataPoints = 10;
+        const instanceStartTimes = new Map();
 
         function initCharts() {
             const chartOptions = {
@@ -164,21 +177,36 @@
             memoryChart.update();
         }
 
+        function formatRuntime(seconds) {
+            if (seconds < 60) return `${seconds}s`;
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${minutes}m ${remainingSeconds}s`;
+        }
+
         async function refreshData() {
             try {
                 const response = await fetch('/api/dashboard-data');
                 const data = await response.json();
 
-                document.getElementById('active-instances').textContent = `${data.active_instances} Itens`;
-                document.getElementById('max-instances').textContent = `${data.max_instances} disponíveis`;
+                document.getElementById('active-instances').textContent = data.active_instances;
+                document.getElementById('max-instances').textContent = data.max_instances;
                 document.getElementById('cpu-usage').textContent = `${data.cpu_usage.toFixed(1)}%`;
                 document.getElementById('memory-usage').textContent = `${data.memory_usage.toFixed(1)} GB`;
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
 
                 updateCharts(data.cpu_usage, data.memory_usage);
 
+                const currentTime = Date.now();
                 const instancesList = document.getElementById('instances-list');
                 instancesList.innerHTML = '';
+
                 data.instances.forEach(instance => {
+                    if (!instanceStartTimes.has(instance.id)) {
+                        instanceStartTimes.set(instance.id, currentTime);
+                    }
+
+                    const runtime = Math.floor((currentTime - instanceStartTimes.get(instance.id)) / 1000);
                     const item = document.createElement('div');
                     item.className = 'instance-item';
                     item.innerHTML = `
@@ -186,10 +214,17 @@
                             <span class="status-indicator status-${instance.status}"></span>
                             ${instance.id}
                         </div>
-                        <div>${instance.runtime}s</div>
+                        <div>${formatRuntime(runtime)}</div>
                     `;
                     instancesList.appendChild(item);
                 });
+
+                // Limpa instâncias que não estão mais ativas
+                for (const [id, _] of instanceStartTimes) {
+                    if (!data.instances.find(i => i.id === id)) {
+                        instanceStartTimes.delete(id);
+                    }
+                }
             } catch (error) {
                 console.error('Erro ao atualizar dados:', error);
             }
