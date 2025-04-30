@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from typing import Dict, Tuple
-from playwright.async_api import async_playwright, Browser, Page
+from typing import Dict, Tuple, Optional
+from playwright.async_api import async_playwright, Browser, Page, TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +38,8 @@ class PanAutomation:
             logger.info("Navegando para página de login")
 
             # Aguarda e preenche o campo de login
-            await self.page.wait_for_selector('input[name="username"]', state="visible")
-            await self.page.fill('input[name="username"]', login)
+            await self.page.wait_for_selector('input[name="login"]', state="visible")
+            await self.page.fill('input[name="login"]', login)
             logger.info("Campo de login preenchido")
 
             # Aguarda e preenche o campo de senha
@@ -48,13 +48,16 @@ class PanAutomation:
             logger.info("Campo de senha preenchido")
 
             # Clica no botão de login
-            await self.page.click('button[type="submit"]')
+            await self.page.click('span.pan-mahoe-button__wrapper')
             logger.info("Botão de login clicado")
 
             # Aguarda a navegação após o login
             await self.page.wait_for_load_state("networkidle")
             logger.info("Login realizado com sucesso")
 
+        except TimeoutError as e:
+            logger.error(f"Timeout durante o login: {str(e)}")
+            raise AutomationError("Timeout ao tentar fazer login")
         except Exception as e:
             logger.error(f"Erro durante o login: {str(e)}")
             raise AutomationError(f"Falha no login: {str(e)}")
@@ -65,14 +68,30 @@ class PanAutomation:
         Retorna uma tupla com (resultado, log_summary)
         """
         try:
-            # TODO: Implementar a navegação até a página de consulta de CPF
-            # TODO: Implementar o preenchimento do CPF
-            # TODO: Implementar a verificação do resultado
+            # Aguarda e preenche o campo de CPF
+            await self.page.wait_for_selector('input[name="cpf"]', state="visible")
+            await self.page.fill('input[name="cpf"]', cpf)
+            logger.info("Campo de CPF preenchido")
 
-            # Placeholder para simulação
-            await asyncio.sleep(2)
-            return "Cliente Elegível", "Simulação de verificação bem-sucedida"
+            # Clica no botão de avançar
+            await self.page.click('div.mahoe-ripple')
+            logger.info("Botão de avançar clicado")
 
+            # Aguarda o resultado aparecer
+            # Vamos esperar por qualquer um dos textos possíveis
+            try:
+                await self.page.wait_for_selector('text="Cliente Elegível"', timeout=10000)
+                return "Cliente Elegível", "Cliente verificado como elegível"
+            except TimeoutError:
+                try:
+                    await self.page.wait_for_selector('text="Cliente Não Elegível"', timeout=10000)
+                    return "Cliente Não Elegível", "Cliente verificado como não elegível"
+                except TimeoutError:
+                    return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente"
+
+        except TimeoutError as e:
+            logger.error(f"Timeout durante verificação de elegibilidade: {str(e)}")
+            raise AutomationError("Timeout ao tentar verificar elegibilidade")
         except Exception as e:
             logger.error(f"Erro durante verificação de elegibilidade: {str(e)}")
             raise AutomationError(f"Falha na verificação: {str(e)}")
