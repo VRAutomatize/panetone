@@ -43,6 +43,7 @@ class StatusResponse(BaseModel):
     status: str
     result: Optional[str] = None
     log_summary: Optional[str] = None
+    screenshot: Optional[str] = None
 
 async def automation_task(run_id: str, login: str, senha: str, cpf_do_cliente: str):
     """
@@ -55,14 +56,16 @@ async def automation_task(run_id: str, login: str, senha: str, cpf_do_cliente: s
         run_results[run_id].update({
             "status": "completed",
             "result": result["result"],
-            "log_summary": result["log_summary"]
+            "log_summary": result["log_summary"],
+            "screenshot": result.get("screenshot")
         })
     except Exception as e:
         logger.error(f"[{run_id}] Erro na automação: {str(e)}")
         run_results[run_id].update({
             "status": "failed",
             "result": f"Erro: {str(e)}",
-            "log_summary": f"Falha na execução: {str(e)}"
+            "log_summary": f"Falha na execução: {str(e)}",
+            "screenshot": None
         })
     finally:
         active_runs.remove(run_id)
@@ -108,7 +111,8 @@ async def get_status(run_id: str):
         run_id=run_id,
         status=result["status"],
         result=result.get("result"),
-        log_summary=result.get("log_summary")
+        log_summary=result.get("log_summary"),
+        screenshot=result.get("screenshot")
     )
 
 if __name__ == "__main__":
