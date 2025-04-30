@@ -443,11 +443,13 @@ class PanAutomation:
 
             # Lista de possíveis seletores para o campo de CPF
             cpf_selectors = [
+                'input[_ngcontent-mfu-c18][class*="mh-input-element"][class*="pan-mahoe-input-element"][formcontrolname="cpf"]',
+                'input[formcontrolname="cpf"][id="cpf"]',
                 'input.mh-input-element.pan-mahoe-input-element[formcontrolname="cpf"]',
+                # Backup seletores caso os atributos dinâmicos mudem
                 'input[formcontrolname="cpf"]',
                 'input[name="cpf"]',
-                'input[placeholder="000.000.000-00"]',
-                'input#cpf'
+                'input[placeholder="000.000.000-00"]'
             ]
 
             # Aguarda e preenche o campo de CPF
@@ -455,6 +457,18 @@ class PanAutomation:
             for attempt in range(3):
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar campo de CPF...")
+                    
+                    # Tenta primeiro com o seletor mais específico via JavaScript
+                    try:
+                        cpf_field = await self.page.evaluate('''() => {
+                            return document.querySelector('input[class*="mh-input-element"][class*="pan-mahoe-input-element"][formcontrolname="cpf"]');
+                        }''')
+                        if cpf_field:
+                            logger.info("Campo de CPF encontrado via JavaScript")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Falha ao tentar encontrar campo via JavaScript: {str(e)}")
+                    
                     cpf_field = await self._try_selectors(cpf_selectors)
                     
                     if not cpf_field:
