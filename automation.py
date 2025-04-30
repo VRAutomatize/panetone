@@ -480,11 +480,21 @@ class PanAutomation:
             # Estratégias para encontrar e preencher o campo CPF
             cpf_strategies = [
                 {
+                    "type": "selector",
+                    "selector": 'input[formcontrolname="cpf"]',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[placeholder="000.000.000-00"]',
+                    "timeout": 5000
+                },
+                {
                     "type": "js",
                     "script": """() => {
                         // Procura por input com atributos específicos do Angular
                         const inputs = Array.from(document.querySelectorAll('input'));
-                        return inputs.find(input => {
+                        const input = inputs.find(input => {
                             const attrs = input.attributes;
                             return Array.from(attrs).some(attr => 
                                 attr.name.includes('formcontrol') && 
@@ -492,24 +502,36 @@ class PanAutomation:
                                  input.placeholder.includes('000.000.000-00'))
                             );
                         });
+                        // Retorna null ao invés do elemento para forçar uso dos seletores
+                        return null;
                     }"""
-                },
-                {
-                    "type": "selector",
-                    "selector": 'input[formcontrolname="cpf"]'
-                },
-                {
-                    "type": "selector",
-                    "selector": 'input[placeholder="000.000.000-00"]'
-                },
-                {
-                    "type": "xpath",
-                    "xpath": "//input[contains(@class, 'cpf') or contains(@name, 'cpf')]"
                 }
             ]
             
             # Encontra o campo CPF
-            cpf_element = await self._find_element_smart("Campo CPF", cpf_strategies)
+            logger.info("Procurando campo de CPF...")
+            cpf_element = None
+            
+            for strategy in cpf_strategies:
+                try:
+                    if strategy["type"] == "selector":
+                        element = await self.page.wait_for_selector(
+                            strategy["selector"],
+                            timeout=strategy.get("timeout", 5000)
+                        )
+                        if element:
+                            cpf_element = element
+                            logger.info(f"Campo CPF encontrado via seletor: {strategy['selector']}")
+                            break
+                    elif strategy["type"] == "js":
+                        # JavaScript agora só usamos para debug
+                        await self.page.evaluate(strategy["script"])
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia de busca do CPF: {str(e)}")
+                    continue
+            
+            if not cpf_element:
+                raise AutomationError("Não foi possível encontrar o campo de CPF")
             
             # Preenche o CPF número por número
             try:
@@ -519,16 +541,19 @@ class PanAutomation:
                 
                 # Remove qualquer formatação do CPF
                 cpf_digits = ''.join(filter(str.isdigit, cpf))
+                logger.info(f"Iniciando preenchimento do CPF dígito por dígito...")
                 
                 # Digita cada número com delay e verifica
                 for i, digit in enumerate(cpf_digits):
                     # Digita o número
                     await cpf_element.type(digit)
                     await asyncio.sleep(0.2)  # Delay entre dígitos
+                    logger.info(f"Dígito {i+1}/11 inserido")
                     
                     # Verifica se o número foi digitado corretamente
                     current_value = await cpf_element.evaluate('(element) => element.value')
                     if not current_value or len(current_value) < i + 1:
+                        logger.warning(f"Dígito {i+1} não foi inserido corretamente, tentando via JavaScript")
                         # Se falhou, tenta novamente com JavaScript
                         await cpf_element.evaluate(f'''(element) => {{
                             const currentValue = element.value;
@@ -541,7 +566,7 @@ class PanAutomation:
                 # Verifica o valor final
                 final_value = await cpf_element.evaluate('(element) => element.value')
                 if len(''.join(filter(str.isdigit, final_value))) == 11:
-                    logger.info("CPF preenchido com sucesso")
+                    logger.info(f"CPF preenchido com sucesso. Valor final: {final_value}")
                 else:
                     raise Exception(f"CPF não foi preenchido corretamente. Valor atual: {final_value}")
                 
