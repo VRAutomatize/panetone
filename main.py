@@ -4,10 +4,13 @@ import os
 import uuid
 from typing import Dict, Optional, Set
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import psutil
 from dotenv import load_dotenv
-from automation import run_automation
+from automation import run_automation, ResourceManager
 
 # Configuração de logging
 logging.basicConfig(
@@ -28,7 +31,13 @@ active_runs: Set[str] = set()
 queued_tasks: asyncio.Queue = asyncio.Queue()
 run_results: Dict[str, dict] = {}
 
-app = FastAPI(title="Banco Pan Veículos Automation API")
+app = FastAPI(title="Panetone Dashboard")
+
+# Monta os arquivos estáticos
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Configura os templates
+templates = Jinja2Templates(directory="templates")
 
 class RunRequest(BaseModel):
     login: str
@@ -81,6 +90,40 @@ async def process_queue():
         active_runs.add(run_id)
         run_results[run_id]["status"] = "running"
         asyncio.create_task(automation_task(run_id, login, senha, cpf_do_cliente))
+
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    """
+    Rota principal que serve o dashboard
+    """
+    return templates.TemplateResponse("dashboard.html", {"request": {}})
+
+@app.get("/api/dashboard-data")
+async def get_dashboard_data():
+    """
+    Rota que retorna os dados do dashboard
+    """
+    resource_manager = ResourceManager()
+    cpu_usage = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    memory_usage = memory.used / (1024 ** 3)  # Converte para GB
+    
+    # Obtém informações das instâncias ativas
+    instances = []
+    for instance_id in resource_manager.active_instances:
+        instances.append({
+            "id": instance_id,
+            "status": "active",
+            "runtime": "0"  # Você pode implementar um sistema de tracking de tempo se necessário
+        })
+    
+    return {
+        "active_instances": len(resource_manager.active_instances),
+        "max_instances": resource_manager.max_instances,
+        "cpu_usage": cpu_usage,
+        "memory_usage": memory_usage,
+        "instances": instances
+    }
 
 @app.post("/run", response_model=RunResponse)
 async def create_run(request: RunRequest):
