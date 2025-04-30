@@ -510,32 +510,46 @@ class PanAutomation:
             # Encontra o campo CPF
             cpf_element = await self._find_element_smart("Campo CPF", cpf_strategies)
             
-            # Preenche o CPF
+            # Preenche o CPF número por número
             try:
-                await self.page.evaluate("""(cpf) => {
-                    const input = document.querySelector('input[formcontrolname="cpf"]');
-                    if (input) {
-                        input.value = '';
-                        input.dispatchEvent(new Event('input'));
-                        
-                        const cpfDigits = cpf.replace(/\D/g, '');
-                        for (let i = 0; i < cpfDigits.length; i++) {
-                            setTimeout(() => {
-                                input.value = cpfDigits.substring(0, i + 1);
-                                input.dispatchEvent(new Event('input'));
-                                input.dispatchEvent(new Event('change'));
-                            }, i * 100);
-                        }
-                    }
-                }""", cpf)
-                await asyncio.sleep(2)
-            except Exception:
-                # Se falhar JavaScript, tenta método tradicional
+                # Limpa o campo primeiro
                 await cpf_element.fill("")
                 await asyncio.sleep(0.5)
-                await cpf_element.type(cpf, delay=100)
-            
-            logger.info("CPF preenchido com sucesso")
+                
+                # Remove qualquer formatação do CPF
+                cpf_digits = ''.join(filter(str.isdigit, cpf))
+                
+                # Digita cada número com delay e verifica
+                for i, digit in enumerate(cpf_digits):
+                    # Digita o número
+                    await cpf_element.type(digit)
+                    await asyncio.sleep(0.2)  # Delay entre dígitos
+                    
+                    # Verifica se o número foi digitado corretamente
+                    current_value = await cpf_element.evaluate('(element) => element.value')
+                    if not current_value or len(current_value) < i + 1:
+                        # Se falhou, tenta novamente com JavaScript
+                        await cpf_element.evaluate(f'''(element) => {{
+                            const currentValue = element.value;
+                            element.value = currentValue + "{digit}";
+                            element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }}''')
+                        await asyncio.sleep(0.2)
+                
+                # Verifica o valor final
+                final_value = await cpf_element.evaluate('(element) => element.value')
+                if len(''.join(filter(str.isdigit, final_value))) == 11:
+                    logger.info("CPF preenchido com sucesso")
+                else:
+                    raise Exception(f"CPF não foi preenchido corretamente. Valor atual: {final_value}")
+                
+            except Exception as e:
+                logger.error(f"Erro ao preencher CPF: {str(e)}")
+                raise AutomationError(f"Falha ao preencher CPF: {str(e)}")
+
+            # Aguarda um momento para garantir que o campo foi preenchido
+            await asyncio.sleep(1)
 
             # Estratégias para encontrar o botão de avançar
             button_strategies = [
