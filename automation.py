@@ -85,6 +85,60 @@ class PanAutomation:
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
         })
 
+    async def _try_fill_input(self, element, value: str, max_attempts: int = 3) -> bool:
+        """
+        Tenta preencher um campo de input usando diferentes estratégias
+        """
+        for attempt in range(max_attempts):
+            try:
+                # Tenta focar o elemento primeiro
+                await element.focus()
+                await asyncio.sleep(0.5)  # Pequena pausa após o foco
+                
+                # Tenta limpar o campo primeiro
+                await element.evaluate('(element) => { element.value = ""; }')
+                await asyncio.sleep(0.2)
+                
+                # Estratégia 1: Usando fill
+                try:
+                    await element.fill(value)
+                    actual_value = await element.evaluate('(element) => element.value')
+                    if actual_value == value:
+                        return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 1 (fill): {str(e)}")
+
+                # Estratégia 2: Usando type
+                try:
+                    await element.type(value, delay=50)
+                    actual_value = await element.evaluate('(element) => element.value')
+                    if actual_value == value:
+                        return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 2 (type): {str(e)}")
+
+                # Estratégia 3: JavaScript direto
+                try:
+                    await element.evaluate(f'(element) => {{ element.value = "{value}"; }}')
+                    await element.evaluate('(element) => element.dispatchEvent(new Event("input"))')
+                    await element.evaluate('(element) => element.dispatchEvent(new Event("change"))')
+                    actual_value = await element.evaluate('(element) => element.value')
+                    if actual_value == value:
+                        return True
+                except Exception as e:
+                    logger.debug(f"Falha na estratégia 3 (JavaScript): {str(e)}")
+
+                if attempt < max_attempts - 1:
+                    logger.warning(f"Tentativa {attempt + 1} de preencher o campo falhou, tentando novamente...")
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"Erro ao tentar preencher campo: {str(e)}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(1)
+                continue
+        
+        return False
+
     async def _try_selectors(self, selectors: List[str], timeout: int = 10000) -> Optional[Page]:
         """
         Tenta diferentes seletores até encontrar um que funcione
@@ -163,9 +217,11 @@ class PanAutomation:
                     if not login_field:
                         raise TimeoutError("Campo de login não encontrado com nenhum seletor")
                     
-                    await login_field.fill(login)
-                    logger.info("Campo de login localizado e preenchido com sucesso")
-                    break
+                    if await self._try_fill_input(login_field, login):
+                        logger.info("Campo de login localizado e preenchido com sucesso")
+                        break
+                    else:
+                        raise TimeoutError("Não foi possível preencher o campo de login")
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de login...")
                     if attempt == 1:
@@ -201,9 +257,12 @@ class PanAutomation:
                     if not password_field:
                         raise TimeoutError("Campo de senha não encontrado com nenhum seletor")
                     
-                    await password_field.fill(senha)
-                    logger.info("Campo de senha localizado e preenchido com sucesso")
-                    break
+                    # Tenta preencher usando diferentes estratégias
+                    if await self._try_fill_input(password_field, senha):
+                        logger.info("Campo de senha localizado e preenchido com sucesso")
+                        break
+                    else:
+                        raise TimeoutError("Não foi possível preencher o campo de senha")
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de senha...")
                     if attempt == 1:
