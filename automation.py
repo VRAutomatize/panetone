@@ -73,14 +73,19 @@ class PanAutomation:
         
         logger.info("Criando nova página no navegador...")
         self.page = await self.context.new_page()
-        logger.info("Nova página criada com sucesso")
         
         # Configurar timeouts mais curtos
-        self.page.set_default_timeout(15000)  # 15 segundos
-        self.page.set_default_navigation_timeout(15000)
-        logger.info("Timeouts configurados: 15 segundos para navegação e operações")
+        self.page.set_default_timeout(10000)  # 10 segundos
+        self.page.set_default_navigation_timeout(10000)
+        logger.info("Timeouts configurados: 10 segundos para navegação e operações")
 
-    @retry_on_failure(max_retries=3, delay=1)  # Reduzindo o delay entre tentativas
+        # Configurar viewport e user agent
+        await self.page.set_viewport_size({"width": 1280, "height": 720})
+        await self.page.set_extra_http_headers({
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+        })
+
+    @retry_on_failure(max_retries=3, delay=1)
     async def login(self, login: str, senha: str) -> None:
         """Realiza o login no sistema"""
         try:
@@ -90,7 +95,18 @@ class PanAutomation:
                 try:
                     logger.info(f"Tentativa {attempt + 1} de navegação...")
                     # Carrega a página com timeout menor
-                    await self.page.goto(self.login_url, wait_until='domcontentloaded', timeout=15000)
+                    response = await self.page.goto(
+                        self.login_url,
+                        wait_until='domcontentloaded',
+                        timeout=10000
+                    )
+                    
+                    if not response:
+                        raise TimeoutError("Falha ao carregar a página")
+                    
+                    if response.status != 200:
+                        raise AutomationError(f"Erro ao carregar página: status {response.status}")
+                    
                     logger.info("Página carregada inicialmente")
                     
                     # Verifica se a página está carregada rapidamente
@@ -106,7 +122,7 @@ class PanAutomation:
                     break
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de navegação, tentando novamente...")
-                    await asyncio.sleep(1)  # Reduzindo o tempo de espera
+                    await asyncio.sleep(1)
             else:
                 raise AutomationError("Falha ao carregar a página de login após várias tentativas")
 
@@ -116,11 +132,17 @@ class PanAutomation:
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar campo de login...")
                     # Tenta localizar o campo de login com timeout menor
-                    login_field = await self.page.wait_for_selector('input[name="login"]', state="visible", timeout=10000)
+                    login_field = await self.page.wait_for_selector(
+                        'input[name="login"]',
+                        state="visible",
+                        timeout=10000
+                    )
+                    
                     if not login_field:
                         raise TimeoutError("Campo de login não encontrado")
                     
-                    await self.page.fill('input[name="login"]', login)
+                    # Tenta preencher o campo
+                    await login_field.fill(login)
                     logger.info("Campo de login localizado e preenchido com sucesso")
                     break
                 except TimeoutError:
@@ -140,11 +162,17 @@ class PanAutomation:
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar campo de senha...")
                     # Tenta localizar o campo de senha com timeout menor
-                    password_field = await self.page.wait_for_selector('input[name="password"]', state="visible", timeout=10000)
+                    password_field = await self.page.wait_for_selector(
+                        'input[name="password"]',
+                        state="visible",
+                        timeout=10000
+                    )
+                    
                     if not password_field:
                         raise TimeoutError("Campo de senha não encontrado")
                     
-                    await self.page.fill('input[name="password"]', senha)
+                    # Tenta preencher o campo
+                    await password_field.fill(senha)
                     logger.info("Campo de senha localizado e preenchido com sucesso")
                     break
                 except TimeoutError:
@@ -164,11 +192,17 @@ class PanAutomation:
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar botão de login...")
                     # Tenta localizar o botão de login com timeout menor
-                    login_button = await self.page.wait_for_selector('span.pan-mahoe-button__wrapper', state="visible", timeout=10000)
+                    login_button = await self.page.wait_for_selector(
+                        'span.pan-mahoe-button__wrapper',
+                        state="visible",
+                        timeout=10000
+                    )
+                    
                     if not login_button:
                         raise TimeoutError("Botão de login não encontrado")
                     
-                    await self.page.click('span.pan-mahoe-button__wrapper')
+                    # Tenta clicar no botão
+                    await login_button.click()
                     logger.info("Botão de login localizado e clicado com sucesso")
                     break
                 except TimeoutError:
@@ -185,7 +219,7 @@ class PanAutomation:
             # Aguarda a navegação após o login com timeout menor
             logger.info("Aguardando carregamento após login...")
             try:
-                await self.page.wait_for_load_state("networkidle", timeout=15000)
+                await self.page.wait_for_load_state("networkidle", timeout=10000)
                 current_url = self.page.url
                 logger.info(f"Login realizado com sucesso. URL atual: {current_url}")
             except TimeoutError:
