@@ -85,7 +85,7 @@ class PanAutomation:
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
         })
 
-    async def _try_fill_input(self, element, value: str, max_attempts: int = 3) -> bool:
+    async def _try_fill_input(self, element, value: str, max_attempts: int = 3, is_cpf: bool = False) -> bool:
         """
         Tenta preencher um campo de input usando diferentes estratégias
         """
@@ -93,31 +93,74 @@ class PanAutomation:
             try:
                 # Tenta focar o elemento primeiro
                 await element.focus()
-                await asyncio.sleep(0.5)  # Pequena pausa após o foco
+                await asyncio.sleep(0.5)
                 
-                # Tenta limpar o campo primeiro
-                await element.evaluate('(element) => { element.value = ""; }')
-                await asyncio.sleep(0.2)
-                
-                # Estratégia 1: Usando fill
+                # Se for CPF, vamos tentar algumas estratégias específicas primeiro
+                if is_cpf:
+                    # Estratégia 1: Preencher dígito por dígito com delay
+                    try:
+                        # Limpa o campo
+                        await element.evaluate('(element) => { element.value = ""; }')
+                        await asyncio.sleep(0.2)
+                        
+                        # Remove pontuação do CPF se houver
+                        cpf_digits = ''.join(filter(str.isdigit, value))
+                        
+                        # Digita cada número com um pequeno delay
+                        for digit in cpf_digits:
+                            await element.type(digit, delay=100)
+                            await asyncio.sleep(0.1)
+                        
+                        # Verifica se o valor foi preenchido corretamente
+                        actual_value = await element.evaluate('(element) => element.value')
+                        if len(''.join(filter(str.isdigit, actual_value))) == 11:
+                            return True
+                    except Exception as e:
+                        logger.debug(f"Falha na estratégia 1 (CPF dígito a dígito): {str(e)}")
+
+                    # Estratégia 2: Usar JavaScript para simular eventos de input
+                    try:
+                        script = """
+                        (element, value) => {
+                            element.value = value;
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                            return element.value;
+                        }
+                        """
+                        # Tenta com o valor formatado
+                        formatted_cpf = f"{value[:3]}.{value[3:6]}.{value[6:9]}-{value[9:]}"
+                        result = await element.evaluate(script, formatted_cpf)
+                        if len(''.join(filter(str.isdigit, result))) == 11:
+                            return True
+                            
+                        # Se falhou, tenta com o valor sem formatação
+                        result = await element.evaluate(script, value)
+                        if len(''.join(filter(str.isdigit, result))) == 11:
+                            return True
+                    except Exception as e:
+                        logger.debug(f"Falha na estratégia 2 (CPF via JavaScript): {str(e)}")
+
+                # Estratégias padrão para outros campos
+                # Estratégia 3: Usando fill
                 try:
                     await element.fill(value)
                     actual_value = await element.evaluate('(element) => element.value')
                     if actual_value == value:
                         return True
                 except Exception as e:
-                    logger.debug(f"Falha na estratégia 1 (fill): {str(e)}")
+                    logger.debug(f"Falha na estratégia 3 (fill): {str(e)}")
 
-                # Estratégia 2: Usando type
+                # Estratégia 4: Usando type
                 try:
                     await element.type(value, delay=50)
                     actual_value = await element.evaluate('(element) => element.value')
                     if actual_value == value:
                         return True
                 except Exception as e:
-                    logger.debug(f"Falha na estratégia 2 (type): {str(e)}")
+                    logger.debug(f"Falha na estratégia 4 (type): {str(e)}")
 
-                # Estratégia 3: JavaScript direto
+                # Estratégia 5: JavaScript direto
                 try:
                     await element.evaluate(f'(element) => {{ element.value = "{value}"; }}')
                     await element.evaluate('(element) => element.dispatchEvent(new Event("input"))')
@@ -126,7 +169,7 @@ class PanAutomation:
                     if actual_value == value:
                         return True
                 except Exception as e:
-                    logger.debug(f"Falha na estratégia 3 (JavaScript): {str(e)}")
+                    logger.debug(f"Falha na estratégia 5 (JavaScript): {str(e)}")
 
                 if attempt < max_attempts - 1:
                     logger.warning(f"Tentativa {attempt + 1} de preencher o campo falhou, tentando novamente...")
@@ -417,7 +460,8 @@ class PanAutomation:
                     if not cpf_field:
                         raise TimeoutError("Campo de CPF não encontrado com nenhum seletor")
                     
-                    if await self._try_fill_input(cpf_field, cpf):
+                    # Note o parâmetro is_cpf=True aqui
+                    if await self._try_fill_input(cpf_field, cpf, is_cpf=True):
                         logger.info("Campo de CPF localizado e preenchido com sucesso")
                         break
                     else:
