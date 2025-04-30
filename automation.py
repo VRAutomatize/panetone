@@ -85,6 +85,26 @@ class PanAutomation:
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
         })
 
+    async def _try_selectors(self, selectors: list[str], timeout: int = 10000) -> Optional[Page]:
+        """
+        Tenta diferentes seletores até encontrar um que funcione
+        """
+        for selector in selectors:
+            try:
+                logger.info(f"Tentando seletor: {selector}")
+                element = await self.page.wait_for_selector(
+                    selector,
+                    state="visible",
+                    timeout=timeout
+                )
+                if element:
+                    logger.info(f"Seletor encontrado com sucesso: {selector}")
+                    return element
+            except TimeoutError:
+                logger.debug(f"Seletor não encontrado: {selector}")
+                continue
+        return None
+
     @retry_on_failure(max_retries=3, delay=1)
     async def login(self, login: str, senha: str) -> None:
         """Realiza o login no sistema"""
@@ -94,7 +114,6 @@ class PanAutomation:
             for attempt in range(3):
                 try:
                     logger.info(f"Tentativa {attempt + 1} de navegação...")
-                    # Carrega a página com timeout menor
                     response = await self.page.goto(
                         self.login_url,
                         wait_until='domcontentloaded',
@@ -109,7 +128,6 @@ class PanAutomation:
                     
                     logger.info("Página carregada inicialmente")
                     
-                    # Verifica se a página está carregada rapidamente
                     try:
                         await self.page.wait_for_selector('body', state='visible', timeout=5000)
                         logger.info("Corpo da página visível")
@@ -126,28 +144,31 @@ class PanAutomation:
             else:
                 raise AutomationError("Falha ao carregar a página de login após várias tentativas")
 
+            # Lista de possíveis seletores para o campo de login
+            login_selectors = [
+                'input[name="login"]',
+                'input[formcontrolname="login"]',
+                'input[type="text"][placeholder*="login" i]',
+                'input[type="text"][placeholder*="usuário" i]',
+                'input[type="text"][placeholder*="cpf" i]'
+            ]
+
             # Aguarda e preenche o campo de login com retry
             logger.info("Procurando campo de login...")
             for attempt in range(3):
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar campo de login...")
-                    # Tenta localizar o campo de login com timeout menor
-                    login_field = await self.page.wait_for_selector(
-                        'input[name="login"]',
-                        state="visible",
-                        timeout=10000
-                    )
+                    login_field = await self._try_selectors(login_selectors)
                     
                     if not login_field:
-                        raise TimeoutError("Campo de login não encontrado")
+                        raise TimeoutError("Campo de login não encontrado com nenhum seletor")
                     
-                    # Tenta preencher o campo
                     await login_field.fill(login)
                     logger.info("Campo de login localizado e preenchido com sucesso")
                     break
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de login...")
-                    if attempt == 1:  # Na segunda tentativa
+                    if attempt == 1:
                         logger.info("Tentando recarregar a página...")
                         await self.page.reload(wait_until='domcontentloaded')
                         await asyncio.sleep(1)
@@ -156,28 +177,36 @@ class PanAutomation:
             else:
                 raise AutomationError("Falha ao preencher campo de login após várias tentativas")
 
+            # Lista de possíveis seletores para o campo de senha
+            password_selectors = [
+                'input.pan-mahoe-input-element.mh-input-element[formcontrolname="senha"]',
+                'input.pan-mahoe-input-element.mh-input-element[name="password"]',
+                'input.login__form__input--hiden[name="password"]',
+                'input[formcontrolname="senha"][name="password"]',
+                'input.pan-mahoe-input-element[name="password"]',
+                'input.mh-input-element[name="password"]',
+                'input[name="password"]',
+                'input[type="password"]',
+                'input[formcontrolname="senha"]',
+                'input[type="password"][placeholder*="senha" i]'
+            ]
+
             # Aguarda e preenche o campo de senha com retry
             logger.info("Procurando campo de senha...")
             for attempt in range(3):
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar campo de senha...")
-                    # Tenta localizar o campo de senha com timeout menor
-                    password_field = await self.page.wait_for_selector(
-                        'input[name="password"]',
-                        state="visible",
-                        timeout=10000
-                    )
+                    password_field = await self._try_selectors(password_selectors)
                     
                     if not password_field:
-                        raise TimeoutError("Campo de senha não encontrado")
+                        raise TimeoutError("Campo de senha não encontrado com nenhum seletor")
                     
-                    # Tenta preencher o campo
                     await password_field.fill(senha)
                     logger.info("Campo de senha localizado e preenchido com sucesso")
                     break
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar campo de senha...")
-                    if attempt == 1:  # Na segunda tentativa
+                    if attempt == 1:
                         logger.info("Tentando recarregar a página...")
                         await self.page.reload(wait_until='domcontentloaded')
                         await asyncio.sleep(1)
@@ -186,28 +215,33 @@ class PanAutomation:
             else:
                 raise AutomationError("Falha ao preencher campo de senha após várias tentativas")
 
+            # Lista de possíveis seletores para o botão de login
+            button_selectors = [
+                'span.pan-mahoe-button__wrapper',
+                'button[type="submit"]',
+                'button:has-text("Entrar")',
+                'button:has-text("Login")',
+                'button:has-text("Acessar")',
+                'button.login-button',
+                'button[formcontrolname="submit"]'
+            ]
+
             # Clica no botão de login com retry
             logger.info("Procurando botão de login...")
             for attempt in range(3):
                 try:
                     logger.info(f"Tentativa {attempt + 1} de localizar botão de login...")
-                    # Tenta localizar o botão de login com timeout menor
-                    login_button = await self.page.wait_for_selector(
-                        'span.pan-mahoe-button__wrapper',
-                        state="visible",
-                        timeout=10000
-                    )
+                    login_button = await self._try_selectors(button_selectors)
                     
                     if not login_button:
-                        raise TimeoutError("Botão de login não encontrado")
+                        raise TimeoutError("Botão de login não encontrado com nenhum seletor")
                     
-                    # Tenta clicar no botão
                     await login_button.click()
                     logger.info("Botão de login localizado e clicado com sucesso")
                     break
                 except TimeoutError:
                     logger.warning(f"Timeout na tentativa {attempt + 1} de localizar botão de login...")
-                    if attempt == 1:  # Na segunda tentativa
+                    if attempt == 1:
                         logger.info("Tentando recarregar a página...")
                         await self.page.reload(wait_until='domcontentloaded')
                         await asyncio.sleep(1)
@@ -216,7 +250,7 @@ class PanAutomation:
             else:
                 raise AutomationError("Falha ao clicar no botão de login após várias tentativas")
 
-            # Aguarda a navegação após o login com timeout menor
+            # Aguarda a navegação após o login
             logger.info("Aguardando carregamento após login...")
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=10000)
