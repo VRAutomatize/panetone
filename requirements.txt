@@ -3,4 +3,5 @@ uvicorn==0.27.1
 psutil==5.9.8
 python-dotenv==1.0.1
 pydantic==2.6.1
-python-multipart==0.0.9 
+python-multipart==0.0.9
+playwright==1.41.0 
