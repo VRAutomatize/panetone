@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError
 from functools import wraps
 import time
@@ -85,7 +85,7 @@ class PanAutomation:
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
         })
 
-    async def _try_selectors(self, selectors: list[str], timeout: int = 10000) -> Optional[Page]:
+    async def _try_selectors(self, selectors: List[str], timeout: int = 10000) -> Optional[Page]:
         """
         Tenta diferentes seletores até encontrar um que funcione
         """
