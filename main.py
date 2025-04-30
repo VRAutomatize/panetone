@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import uuid
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import psutil
@@ -24,7 +24,7 @@ MAX_CONCURRENT_RUNS = max(1, psutil.cpu_count(logical=True) - 1)
 LOGIN_URL = os.getenv("LOGIN_URL", "https://veiculos.bancopan.com.br/login")
 
 # Estruturas de dados para gerenciamento de estado
-active_runs: set[str] = set()
+active_runs: Set[str] = set()
 queued_tasks: asyncio.Queue = asyncio.Queue()
 run_results: Dict[str, dict] = {}
 
