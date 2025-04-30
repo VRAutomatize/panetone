@@ -431,10 +431,10 @@ class PanAutomation:
             raise AutomationError(f"Falha no login: {str(e)}")
 
     @retry_on_failure(max_retries=3, delay=2)
-    async def verificar_elegibilidade(self, cpf: str) -> Tuple[str, str]:
+    async def verificar_elegibilidade(self, cpf: str) -> Tuple[str, str, Optional[str]]:
         """
         Verifica a elegibilidade do cliente usando o CPF
-        Retorna uma tupla com (resultado, log_summary)
+        Retorna uma tupla com (resultado, log_summary, screenshot_base64)
         """
         try:
             logger.info("Iniciando verificação de elegibilidade...")
@@ -533,28 +533,95 @@ class PanAutomation:
             ]
 
             try:
+                # Aguarda um tempo para garantir que a página carregou completamente
+                await asyncio.sleep(2)
+                
+                # Captura o estado atual da página
+                logger.info("Verificando estado atual da página...")
+                current_url = self.page.url
+                logger.info(f"URL após submissão do CPF: {current_url}")
+                
+                page_content = await self.page.content()
+                if "erro" in page_content.lower() or "error" in page_content.lower():
+                    logger.warning("Detectada possível mensagem de erro na página")
+                
+                # Tenta encontrar qualquer mensagem de resultado
                 for selector in result_selectors:
                     try:
-                        await self.page.wait_for_selector(selector, timeout=10000)
-                        result_text = await self.page.evaluate(f'document.querySelector("{selector}").textContent')
-                        logger.info(f"Resultado encontrado: {result_text}")
-                        return result_text.strip(), f"Cliente verificado como {result_text.strip().lower()}"
-                    except:
-                        continue
+                        element = await self.page.wait_for_selector(selector, timeout=5000)
+                        if element:
+                            result_text = await element.text_content()
+                            logger.info(f"Texto encontrado com seletor {selector}: {result_text}")
+                            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
+                            return result_text.strip(), f"Cliente verificado como {result_text.strip().lower()}", screenshot_base64
+                    except Exception as e:
+                        logger.debug(f"Seletor {selector} não encontrou resultado: {str(e)}")
                 
-                logger.warning("Não foi possível determinar a elegibilidade do cliente")
-                return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente"
+                # Se não encontrou resultado específico, vamos capturar mais informações
+                logger.warning("Nenhum resultado específico encontrado, coletando informações adicionais...")
+                
+                # Tenta encontrar qualquer mensagem ou texto relevante
+                try:
+                    # Procura por textos que possam indicar o status
+                    texts = await self.page.evaluate('''() => {
+                        const elements = document.querySelectorAll('*');
+                        return Array.from(elements)
+                            .map(el => el.textContent)
+                            .filter(text => text && text.trim())
+                            .filter(text => 
+                                text.toLowerCase().includes('elegível') ||
+                                text.toLowerCase().includes('elegivel') ||
+                                text.toLowerCase().includes('status') ||
+                                text.toLowerCase().includes('resultado') ||
+                                text.toLowerCase().includes('erro') ||
+                                text.toLowerCase().includes('aguarde')
+                            );
+                    }''')
+                    
+                    if texts:
+                        logger.info("Textos relevantes encontrados na página:")
+                        for text in texts:
+                            logger.info(f"- {text.strip()}")
+                except Exception as e:
+                    logger.error(f"Erro ao buscar textos na página: {str(e)}")
+
+                # Captura screenshot em caso de falha
+                screenshot_base64 = await self._capture_screenshot("verificacao_falha")
+                
+                return "Resultado Indeterminado", "Não foi possível determinar a elegibilidade do cliente. Verifique o screenshot para mais detalhes.", screenshot_base64
 
             except TimeoutError:
                 logger.warning("Timeout ao aguardar resultado da verificação")
-                return "Timeout", "Timeout ao aguardar resultado da verificação"
+                screenshot_base64 = await self._capture_screenshot("timeout_verificacao")
+                return "Timeout", "Timeout ao aguardar resultado da verificação. Verifique o screenshot para mais detalhes.", screenshot_base64
 
         except TimeoutError as e:
             logger.error(f"Timeout durante verificação de elegibilidade: {str(e)}")
+            screenshot_base64 = await self._capture_screenshot("erro_verificacao")
             raise AutomationError("Timeout ao tentar verificar elegibilidade")
         except Exception as e:
             logger.error(f"Erro durante verificação de elegibilidade: {str(e)}")
+            screenshot_base64 = await self._capture_screenshot("erro_verificacao")
             raise AutomationError(f"Falha na verificação: {str(e)}")
+
+    async def _capture_screenshot(self, prefix: str) -> str:
+        """
+        Captura screenshot da página atual e retorna como base64
+        """
+        try:
+            logger.info(f"Capturando screenshot ({prefix})...")
+            screenshot_bytes = await self.page.screenshot(
+                full_page=True,
+                type='jpeg',
+                quality=80
+            )
+            import base64
+            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+            logger.info(f"Screenshot capturado com sucesso ({prefix})")
+            return screenshot_base64
+        except Exception as e:
+            logger.error(f"Erro ao capturar screenshot: {str(e)}")
+            return None
 
 async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[str, str]:
     """
@@ -562,6 +629,7 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
     """
     log_summary = []
     start_time = time.time()
+    screenshot = None
     
     try:
         async with PanAutomation(login_url="https://veiculos.bancopan.com.br/login") as automation:
@@ -573,7 +641,7 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
             await automation.login(login, senha)
             log_summary.append("Login realizado com sucesso")
             
-            result, verification_log = await automation.verificar_elegibilidade(cpf)
+            result, verification_log, screenshot = await automation.verificar_elegibilidade(cpf)
             log_summary.append(verification_log)
             
             execution_time = time.time() - start_time
@@ -581,7 +649,8 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
             
             return {
                 "result": result,
-                "log_summary": "\n".join(log_summary)
+                "log_summary": "\n".join(log_summary),
+                "screenshot": screenshot
             }
             
     except AutomationError as e:
@@ -590,7 +659,8 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
         log_summary.append(f"Tempo total de execução: {execution_time:.2f} segundos")
         return {
             "result": f"Erro: {str(e)}",
-            "log_summary": "\n".join(log_summary)
+            "log_summary": "\n".join(log_summary),
+            "screenshot": screenshot
         }
     except Exception as e:
         log_summary.append(f"Erro inesperado: {str(e)}")
@@ -598,5 +668,6 @@ async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[
         log_summary.append(f"Tempo total de execução: {execution_time:.2f} segundos")
         return {
             "result": f"Erro: {str(e)}",
-            "log_summary": "\n".join(log_summary)
+            "log_summary": "\n".join(log_summary),
+            "screenshot": screenshot
         } 
