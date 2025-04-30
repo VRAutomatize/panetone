@@ -635,16 +635,34 @@ class PanAutomation:
             if not button_clicked:
                 raise AutomationError("Não foi possível clicar no botão de avançar")
             
-            # Aguarda o resultado
-            await asyncio.sleep(3)
+            # Após clicar no botão, aguarda carregamento
+            logger.info("Aguardando processamento após envio do CPF...")
             
-            # Captura screenshot antes de procurar o resultado
-            logger.info("Capturando screenshot do resultado...")
-            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
-            if not screenshot_base64:
-                logger.warning("Screenshot não foi capturado!")
-            else:
-                logger.info("Screenshot capturado e codificado com sucesso")
+            # Aguarda carregamento inicial
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=10000)
+                logger.info("Página carregou completamente")
+            except Exception as e:
+                logger.warning(f"Timeout aguardando carregamento da página: {str(e)}")
+
+            # Aguarda elementos que indicam carregamento completo
+            loading_selectors = [
+                '.loading',
+                '.spinner',
+                '[role="progressbar"]',
+                '.progress-bar',
+                '.loading-indicator'
+            ]
+            
+            # Aguarda até que elementos de loading desapareçam
+            for selector in loading_selectors:
+                try:
+                    await self.page.wait_for_selector(selector, state="hidden", timeout=5000)
+                except:
+                    pass  # Ignora se o seletor não existir
+            
+            # Aguarda mais um pouco para garantir que a página estabilizou
+            await asyncio.sleep(3)
             
             # Estratégias para encontrar o resultado
             result_strategies = [
@@ -654,45 +672,58 @@ class PanAutomation:
                     "timeout": 5000
                 },
                 {
-                    "type": "js",
-                    "script": """() => {
-                        const elements = Array.from(document.querySelectorAll('*'));
-                        const element = elements.find(el => {
-                            const text = (el.textContent || '').toLowerCase();
-                            return text.includes('elegível') || text.includes('elegivel');
-                        });
-                        return element ? element.textContent.trim() : null;
-                    }"""
+                    "type": "selector",
+                    "selector": 'h1, h2, h3, h4, h5, h6, p, div',
+                    "text_match": ["elegível", "elegivel", "não elegível", "nao elegivel", "inelegível", "inelegivel"],
+                    "timeout": 5000
                 }
             ]
             
             # Tenta encontrar o resultado
+            logger.info("Procurando resultado de elegibilidade...")
             result_text = "Resultado Indeterminado"
+            result_found = False
+            
             for strategy in result_strategies:
                 try:
-                    if strategy["type"] == "js":
-                        result = await self.page.evaluate(strategy["script"])
-                        if result:
-                            result_text = result
-                            break
-                    else:
-                        element = await self.page.wait_for_selector(
-                            strategy["selector"],
-                            timeout=strategy.get("timeout", 5000)
-                        )
-                        if element:
-                            result_text = await element.text_content()
-                            result_text = result_text.strip()
-                            break
+                    if strategy["type"] == "selector":
+                        elements = await self.page.query_selector_all(strategy["selector"])
+                        for element in elements:
+                            text = await element.text_content()
+                            text = text.lower().strip()
+                            
+                            # Se há texto_match definido, verifica se contém alguma das palavras
+                            if "text_match" in strategy:
+                                for match in strategy["text_match"]:
+                                    if match.lower() in text:
+                                        result_text = text
+                                        result_found = True
+                                        logger.info(f"Resultado encontrado: {text}")
+                                        break
+                            else:
+                                if "elegível" in text or "elegivel" in text:
+                                    result_text = text
+                                    result_found = True
+                                    logger.info(f"Resultado encontrado: {text}")
+                                    break
+                            
+                            if result_found:
+                                break
+                                
                 except Exception as e:
                     logger.debug(f"Falha na estratégia de busca de resultado: {str(e)}")
                     continue
-
-            # Garante que o screenshot seja retornado
-            if not screenshot_base64:
-                logger.warning("Tentando capturar screenshot novamente antes de retornar...")
-                screenshot_base64 = await self._capture_screenshot("resultado_final")
-
+                
+                if result_found:
+                    break
+            
+            # Captura screenshot após encontrar o resultado
+            logger.info("Capturando screenshot do resultado final...")
+            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
+            
+            if not result_found:
+                logger.warning("Não foi possível encontrar um resultado claro de elegibilidade")
+                
             return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_base64
 
         except Exception as e:
