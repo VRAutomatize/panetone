@@ -5,32 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panetone Dashboard - VR Automatize</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
-        <header class="header">
+        <div class="header">
             <div class="logo">
-                <h1>Panetone</h1>
-                <span>by VR Automatize</span>
+                <img src="https://res.cloudinary.com/dm7cgwtmp/image/upload/v1740567841/VR%20Automatize/logoVR.png" alt="Logo VR Automatize"/>
+                <h1>Panetone by VR Automatize</h1>
             </div>
             <button class="refresh-button" onclick="refreshData()">Atualizar</button>
-        </header>
+        </div>
 
         <div class="dashboard-grid">
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">Instâncias Ativas</h2>
-                    <span class="status-indicator status-active"></span>
+                    <h2 class="card-title">
+                        <span class="title-text">
+                            <span class="icon icon-cash"></span>
+                            Instâncias Ativas
+                        </span>
+                        <span class="item-count" id="active-instances">0</span>
+                    </h2>
                 </div>
-                <div class="card-value" id="active-instances">0</div>
-                <div>de <span id="max-instances">0</span> disponíveis</div>
+                <div class="card-value" id="max-instances">0</div>
+                <div class="metric-details">
+                    <p><span>Status:</span> <span>Atualizado</span></p>
+                </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">Uso de CPU</h2>
+                    <h2 class="card-title">
+                        <span class="title-text">
+                            <span class="icon icon-receivables"></span>
+                            Uso de CPU
+                        </span>
+                    </h2>
                 </div>
                 <div class="card-value" id="cpu-usage">0%</div>
                 <div class="chart-container">
@@ -40,7 +52,12 @@
 
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">Memória</h2>
+                    <h2 class="card-title">
+                        <span class="title-text">
+                            <span class="icon icon-subscriptions"></span>
+                            Memória
+                        </span>
+                    </h2>
                 </div>
                 <div class="card-value" id="memory-usage">0 GB</div>
                 <div class="chart-container">
@@ -51,7 +68,12 @@
 
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Instâncias em Execução</h2>
+                <h2 class="card-title">
+                    <span class="title-text">
+                        <span class="icon icon-subscriptions"></span>
+                        Instâncias em Execução
+                    </span>
+                </h2>
             </div>
             <div class="instances-list" id="instances-list">
                 <!-- Preenchido via JavaScript -->
@@ -125,7 +147,6 @@
         function updateCharts(cpuData, memoryData) {
             const timestamp = new Date().toLocaleTimeString();
 
-            // Atualiza gráfico de CPU
             if (cpuChart.data.labels.length > maxDataPoints) {
                 cpuChart.data.labels.shift();
                 cpuChart.data.datasets[0].data.shift();
@@ -134,7 +155,6 @@
             cpuChart.data.datasets[0].data.push(cpuData);
             cpuChart.update();
 
-            // Atualiza gráfico de memória
             if (memoryChart.data.labels.length > maxDataPoints) {
                 memoryChart.data.labels.shift();
                 memoryChart.data.datasets[0].data.shift();
@@ -149,14 +169,13 @@
                 const response = await fetch('/api/dashboard-data');
                 const data = await response.json();
 
-                document.getElementById('active-instances').textContent = data.active_instances;
-                document.getElementById('max-instances').textContent = data.max_instances;
+                document.getElementById('active-instances').textContent = `${data.active_instances} Itens`;
+                document.getElementById('max-instances').textContent = `${data.max_instances} disponíveis`;
                 document.getElementById('cpu-usage').textContent = `${data.cpu_usage.toFixed(1)}%`;
                 document.getElementById('memory-usage').textContent = `${data.memory_usage.toFixed(1)} GB`;
 
                 updateCharts(data.cpu_usage, data.memory_usage);
 
-                // Atualiza lista de instâncias
                 const instancesList = document.getElementById('instances-list');
                 instancesList.innerHTML = '';
                 data.instances.forEach(instance => {
@@ -176,10 +195,9 @@
             }
         }
 
-        // Inicialização
         initCharts();
         refreshData();
-        setInterval(refreshData, 5000); // Atualiza a cada 5 segundos
+        setInterval(refreshData, 5000);
     </script>
 </body>
 </html> 
