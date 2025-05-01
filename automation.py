@@ -133,11 +133,12 @@ class PanAutomation:
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
         self.context = None
+        self.playwright = None
 
     async def __aenter__(self):
         logger.info("Iniciando Playwright e configurando navegador...")
-        playwright = await async_playwright().start()
-        self.browser = await playwright.chromium.launch(
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(
             headless=True,
             args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         )
@@ -153,12 +154,26 @@ class PanAutomation:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         logger.info("Finalizando recursos do navegador...")
-        if self.context:
-            await self.context.close()
-            logger.info("Contexto do navegador fechado")
-        if self.browser:
-            await self.browser.close()
-            logger.info("Navegador fechado")
+        try:
+            if self.page:
+                await self.page.close()
+                logger.info("Página fechada")
+            if self.context:
+                await self.context.close()
+                logger.info("Contexto do navegador fechado")
+            if self.browser:
+                await self.browser.close()
+                logger.info("Navegador fechado")
+            if self.playwright:
+                await self.playwright.stop()
+                logger.info("Playwright finalizado")
+        except Exception as e:
+            logger.error(f"Erro ao finalizar recursos: {str(e)}")
+        finally:
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None
 
     async def initialize(self):
         """Inicializa o navegador e cria uma nova página"""

@@ -110,16 +110,16 @@ async def get_dashboard_data():
     
     # Obtém informações das instâncias ativas
     instances = []
-    for instance_id in resource_manager.active_instances:
+    for run_id in active_runs:
         instances.append({
-            "id": instance_id,
-            "status": "active",
+            "id": run_id,
+            "status": run_results[run_id]["status"],
             "runtime": "0"  # Você pode implementar um sistema de tracking de tempo se necessário
         })
     
     return {
-        "active_instances": len(resource_manager.active_instances),
-        "max_instances": resource_manager.max_instances,
+        "active_instances": len(active_runs),
+        "max_instances": MAX_CONCURRENT_RUNS,
         "cpu_usage": cpu_usage,
         "memory_usage": memory_usage,
         "instances": instances
