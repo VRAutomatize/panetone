@@ -32,7 +32,7 @@ class ResourceManager:
     def _initialize(self):
         self.active_instances: Set[str] = set()
         self.last_resource_check = 0
-        self.resource_check_interval = 60  # Verifica recursos a cada 60 segundos
+        self.resource_check_interval = 10  # Verifica recursos a cada 10 segundos
         self.update_system_resources()
         
         # Configurações base por instância
@@ -47,8 +47,12 @@ class ResourceManager:
     def update_system_resources(self) -> SystemResources:
         """Atualiza informações sobre recursos do sistema"""
         cpu_cores = psutil.cpu_count(logical=True)
-        total_memory = psutil.virtual_memory().total / (1024 ** 3)  # GB
-        available_memory = psutil.virtual_memory().available / (1024 ** 3)  # GB
+        memory = psutil.virtual_memory()
+        total_memory = memory.total / (1024 ** 3)  # GB
+        available_memory = memory.available / (1024 ** 3)  # GB
+        
+        # Calcula uso atual de CPU
+        cpu_percent = psutil.cpu_percent(interval=1)
         
         self.system_resources = SystemResources(
             cpu_cores=cpu_cores,
@@ -56,15 +60,18 @@ class ResourceManager:
             available_memory_gb=available_memory
         )
         
+        logger.info(f"Recursos atualizados - CPU: {cpu_percent}%, Memória Total: {total_memory:.1f}GB, Disponível: {available_memory:.1f}GB")
         return self.system_resources
     
     def _calculate_limits(self):
         """Calcula o número máximo de instâncias com base nos recursos"""
         # Limite baseado na CPU
-        cpu_limit = math.floor(self.system_resources.cpu_cores / self.cpu_per_instance)
+        cpu_usage = psutil.cpu_percent(interval=1)
+        available_cpu = 100 - cpu_usage
+        cpu_limit = math.floor((available_cpu / 100) * self.system_resources.cpu_cores / self.cpu_per_instance)
         
         # Limite baseado na memória
-        memory_limit = math.floor(self.system_resources.total_memory_gb / self.memory_per_instance_gb)
+        memory_limit = math.floor(self.system_resources.available_memory_gb / self.memory_per_instance_gb)
         
         # Usa o menor dos limites
         self.max_instances = min(cpu_limit, memory_limit)
@@ -100,6 +107,9 @@ class ResourceManager:
         with self._lock:
             self.active_instances.discard(instance_id)
             logger.info(f"Instância {instance_id} finalizada. Total ativo: {len(self.active_instances)}/{self.max_instances}")
+            # Força uma atualização dos recursos após liberar uma instância
+            self.update_system_resources()
+            self._calculate_limits()
 
 class AutomationError(Exception):
     pass

@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Configurações
-MAX_CONCURRENT_RUNS = max(1, psutil.cpu_count(logical=True) - 1)
 LOGIN_URL = os.getenv("LOGIN_URL", "https://veiculos.bancopan.com.br/login")
 
 # Estruturas de dados para gerenciamento de estado
 active_runs: Set[str] = set()
 queued_tasks: asyncio.Queue = asyncio.Queue()
 run_results: Dict[str, dict] = {}
+resource_manager = ResourceManager()
 
 app = FastAPI(title="Panetone Dashboard")
 
@@ -84,7 +84,7 @@ async def process_queue():
     """
     Processa a fila de tarefas pendentes
     """
-    while not queued_tasks.empty() and len(active_runs) < MAX_CONCURRENT_RUNS:
+    while not queued_tasks.empty() and len(active_runs) < resource_manager.max_instances:
         task = await queued_tasks.get()
         run_id, login, senha, cpf_do_cliente = task
         active_runs.add(run_id)
@@ -103,7 +103,9 @@ async def get_dashboard_data():
     """
     Rota que retorna os dados do dashboard
     """
-    resource_manager = ResourceManager()
+    # Atualiza os recursos do sistema
+    await resource_manager.check_resources()
+    
     cpu_usage = psutil.cpu_percent()
     memory = psutil.virtual_memory()
     memory_usage = memory.used / (1024 ** 3)  # Converte para GB
@@ -119,7 +121,7 @@ async def get_dashboard_data():
     
     return {
         "active_instances": len(active_runs),
-        "max_instances": MAX_CONCURRENT_RUNS,
+        "max_instances": resource_manager.max_instances,
         "cpu_usage": cpu_usage,
         "memory_usage": memory_usage,
         "instances": instances
@@ -132,7 +134,10 @@ async def create_run(request: RunRequest):
     
     run_results[run_id] = {"status": "pending"}
     
-    if len(active_runs) < MAX_CONCURRENT_RUNS:
+    # Atualiza os recursos do sistema antes de verificar
+    await resource_manager.check_resources()
+    
+    if len(active_runs) < resource_manager.max_instances:
         active_runs.add(run_id)
         run_results[run_id]["status"] = "running"
         asyncio.create_task(automation_task(
