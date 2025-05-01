@@ -119,9 +119,14 @@ async def get_dashboard_data():
             "runtime": "0"  # Você pode implementar um sistema de tracking de tempo se necessário
         })
     
+    # Calcula o número de instâncias disponíveis
+    active_count = len(active_runs)
+    max_instances = resource_manager.max_instances
+    available_instances = max(0, max_instances - active_count)
+    
     return {
-        "active_instances": len(active_runs),
-        "max_instances": resource_manager.max_instances,
+        "active_instances": active_count,
+        "max_instances": available_instances,  # Agora retorna o número de instâncias disponíveis
         "cpu_usage": cpu_usage,
         "memory_usage": memory_usage,
         "instances": instances
