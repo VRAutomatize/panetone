@@ -65,21 +65,10 @@ class ResourceManager:
     
     def _calculate_limits(self):
         """Calcula o número máximo de instâncias com base nos recursos"""
-        # Limite baseado na CPU
-        cpu_usage = psutil.cpu_percent(interval=1)
-        available_cpu = 100 - cpu_usage
-        cpu_limit = math.floor((available_cpu / 100) * self.system_resources.cpu_cores / self.cpu_per_instance)
+        # Hardcap de 2 instâncias
+        self.max_instances = 2
         
-        # Limite baseado na memória
-        memory_limit = math.floor(self.system_resources.available_memory_gb / self.memory_per_instance_gb)
-        
-        # Usa o menor dos limites
-        self.max_instances = min(cpu_limit, memory_limit)
-        
-        # Garante pelo menos uma instância
-        self.max_instances = max(1, self.max_instances)
-        
-        logger.info(f"Limites atualizados - CPU: {cpu_limit}, Memória: {memory_limit}, Final: {self.max_instances}")
+        logger.info(f"Limites atualizados - Hardcap: 2 instâncias")
     
     async def check_resources(self):
         """Verifica se é necessário atualizar os limites de recursos"""
