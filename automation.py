@@ -659,254 +659,84 @@ class PanAutomation:
                     logger.debug(f"Falha ao tentar seletor {selector}: {str(e)}")
                     continue
 
-            # Estratégias para encontrar e preencher o campo CPF
+            # Estratégias para encontrar e preencher o campo CPF (atualizado)
             cpf_strategies = [
                 {
                     "type": "selector",
-                    "selector": 'input[formcontrolname="cpf"]',
-                    "timeout": 5000
-                },
-                {
-                    "type": "selector",
-                    "selector": 'input[placeholder="000.000.000-00"]',
-                    "timeout": 5000
-                },
-                {
-                    "type": "js",
-                    "script": """() => {
-                        // Procura por input com atributos específicos do Angular
-                        const inputs = Array.from(document.querySelectorAll('input'));
-                        const input = inputs.find(input => {
-                            const attrs = input.attributes;
-                            return Array.from(attrs).some(attr => 
-                                attr.name.includes('formcontrol') && 
-                                (attr.value.toLowerCase().includes('cpf') || 
-                                 input.placeholder.includes('000.000.000-00'))
-                            );
-                        });
-                        // Retorna null ao invés do elemento para forçar uso dos seletores
-                        return null;
-                    }"""
+                    "selector": 'input#combo__input',
+                    "timeout": 7000
                 }
             ]
             
             # Encontra o campo CPF
             logger.info("Procurando campo de CPF...")
             cpf_element = None
-            
             for strategy in cpf_strategies:
                 try:
                     if strategy["type"] == "selector":
                         element = await self.page.wait_for_selector(
                             strategy["selector"],
-                            timeout=strategy.get("timeout", 5000)
+                            timeout=strategy.get("timeout", 7000)
                         )
                         if element:
                             cpf_element = element
                             logger.info(f"Campo CPF encontrado via seletor: {strategy['selector']}")
                             break
-                    elif strategy["type"] == "js":
-                        # JavaScript agora só usamos para debug
-                        await self.page.evaluate(strategy["script"])
                 except Exception as e:
                     logger.debug(f"Falha na estratégia de busca do CPF: {str(e)}")
                     continue
-            
             if not cpf_element:
                 raise AutomationError("Não foi possível encontrar o campo de CPF")
-            
+
             # Preenche o CPF número por número
             try:
-                # Limpa o campo primeiro
                 await cpf_element.fill("")
                 await asyncio.sleep(0.5)
-                
-                # Remove qualquer formatação do CPF
                 cpf_digits = ''.join(filter(str.isdigit, cpf))
                 logger.info(f"Iniciando preenchimento do CPF dígito por dígito...")
-                
-                # Digita cada número com delay e verifica
                 for i, digit in enumerate(cpf_digits):
-                    # Digita o número
                     await cpf_element.type(digit)
-                    await asyncio.sleep(0.2)  # Delay entre dígitos
+                    await asyncio.sleep(0.2)
                     logger.info(f"Dígito {i+1}/11 inserido")
-                    
-                    # Verifica se o número foi digitado corretamente
-                    current_value = await cpf_element.evaluate('(element) => element.value')
-                    if not current_value or len(current_value) < i + 1:
-                        logger.warning(f"Dígito {i+1} não foi inserido corretamente, tentando via JavaScript")
-                        # Se falhou, tenta novamente com JavaScript
-                        await cpf_element.evaluate(f'''(element) => {{
-                            const currentValue = element.value;
-                            element.value = currentValue + "{digit}";
-                            element.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            element.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        }}''')
-                        await asyncio.sleep(0.2)
-                
-                # Verifica o valor final
                 final_value = await cpf_element.evaluate('(element) => element.value')
                 if len(''.join(filter(str.isdigit, final_value))) == 11:
                     logger.info(f"CPF preenchido com sucesso. Valor final: {final_value}")
                 else:
                     raise Exception(f"CPF não foi preenchido corretamente. Valor atual: {final_value}")
-                
             except Exception as e:
                 logger.error(f"Erro ao preencher CPF: {str(e)}")
                 raise AutomationError(f"Falha ao preencher CPF: {str(e)}")
 
-            # Aguarda um momento para garantir que o campo foi preenchido
-            await asyncio.sleep(1)
+            # Tirar print após digitar o CPF
+            logger.info("Capturando screenshot após digitar o CPF...")
+            screenshot_cpf = await self._capture_screenshot("cpf_inserido")
 
-            # Estratégias para encontrar o botão de avançar
-            button_strategies = [
-                {
-                    "type": "selector",
-                    "selector": 'button[type="submit"]',
-                    "timeout": 5000
-                },
-                {
-                    "type": "selector",
-                    "selector": 'button:has-text("Avançar")',
-                    "timeout": 5000
-                },
-                {
-                    "type": "js",
-                    "script": """() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        const button = buttons.find(btn => {
-                            const text = btn.textContent.toLowerCase();
-                            return text.includes('avançar') || 
-                                   text.includes('continuar') || 
-                                   text.includes('próximo');
-                        });
-                        if (button) {
-                            button.click();
-                            return true;
-                        }
-                        return null;
-                    }"""
-                }
-            ]
-            
-            # Encontra e clica no botão
-            button_clicked = False
-            for strategy in button_strategies:
-                try:
-                    if strategy["type"] == "js":
-                        result = await self.page.evaluate(strategy["script"])
-                        if result:
-                            button_clicked = True
-                            logger.info("Botão clicado via JavaScript")
-                            break
-                    else:
-                        button = await self.page.wait_for_selector(
-                            strategy["selector"],
-                            timeout=strategy.get("timeout", 5000)
-                        )
-                        if button:
-                            await button.click()
-                            button_clicked = True
-                            logger.info(f"Botão clicado via seletor: {strategy['selector']}")
-                            break
-                except Exception as e:
-                    logger.debug(f"Falha na estratégia de clique: {str(e)}")
-                    continue
-
-            if not button_clicked:
-                raise AutomationError("Não foi possível clicar no botão de avançar")
-            
-            # Após clicar no botão, aguarda carregamento
-            logger.info("Aguardando processamento após envio do CPF...")
-            
-            # Aguarda carregamento inicial
+            # Aguarda atualização automática (pelo menos 7 segundos OU até URL mudar para /comparador)
+            logger.info("Aguardando atualização automática da página de elegibilidade...")
             try:
-                await self.page.wait_for_load_state("networkidle", timeout=10000)
-                logger.info("Página carregou completamente")
-            except Exception as e:
-                logger.warning(f"Timeout aguardando carregamento da página: {str(e)}")
+                await asyncio.wait_for(self.page.wait_for_url("**/comparador", timeout=15000), timeout=15)
+            except Exception:
+                logger.warning("Timeout aguardando URL /comparador. Prosseguindo para checagem de elegibilidade.")
+            await asyncio.sleep(7)  # Garante o delay mínimo
 
-            # Aguarda elementos que indicam carregamento completo
-            loading_selectors = [
-                '.loading',
-                '.spinner',
-                '[role="progressbar"]',
-                '.progress-bar',
-                '.loading-indicator'
-            ]
-            
-            # Aguarda até que elementos de loading desapareçam
-            for selector in loading_selectors:
-                try:
-                    await self.page.wait_for_selector(selector, state="hidden", timeout=5000)
-                except:
-                    pass  # Ignora se o seletor não existir
-            
-            # Aguarda mais um pouco para garantir que a página estabilizou
-            await asyncio.sleep(3)
-            
-            # Estratégias para encontrar o resultado
-            result_strategies = [
-                {
-                    "type": "selector",
-                    "selector": '[data-testid*="eligibility"], [data-testid*="status"]',
-                    "timeout": 5000
-                },
-                {
-                    "type": "selector",
-                    "selector": 'h1, h2, h3, h4, h5, h6, p, div',
-                    "text_match": ["elegível", "elegivel", "não elegível", "nao elegivel", "inelegível", "inelegivel"],
-                    "timeout": 5000
-                }
-            ]
-            
-            # Tenta encontrar o resultado
-            logger.info("Procurando resultado de elegibilidade...")
-            result_text = "Resultado Indeterminado"
-            result_found = False
-            
-            for strategy in result_strategies:
-                try:
-                    if strategy["type"] == "selector":
-                        elements = await self.page.query_selector_all(strategy["selector"])
-                        for element in elements:
-                            text = await element.text_content()
-                            text = text.lower().strip()
-                            
-                            # Se há texto_match definido, verifica se contém alguma das palavras
-                            if "text_match" in strategy:
-                                for match in strategy["text_match"]:
-                                    if match.lower() in text:
-                                        result_text = text
-                                        result_found = True
-                                        logger.info(f"Resultado encontrado: {text}")
-                                        break
-                            else:
-                                if "elegível" in text or "elegivel" in text:
-                                    result_text = text
-                                    result_found = True
-                                    logger.info(f"Resultado encontrado: {text}")
-                                    break
-                            
-                            if result_found:
-                                break
-                                
-                except Exception as e:
-                    logger.debug(f"Falha na estratégia de busca de resultado: {str(e)}")
-                    continue
-                
-                if result_found:
-                    break
-            
-            # Captura screenshot após encontrar o resultado
-            logger.info("Capturando screenshot do resultado final...")
-            screenshot_base64 = await self._capture_screenshot("resultado_elegibilidade")
-            
-            if not result_found:
-                logger.warning("Não foi possível encontrar um resultado claro de elegibilidade")
-                
-            return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_base64
+            # Tirar print após atualização da tela
+            logger.info("Capturando screenshot da tela de resposta de elegibilidade...")
+            screenshot_final = await self._capture_screenshot("resposta_elegibilidade")
+
+            # Verificar elegibilidade
+            url_atual = self.page.url
+            if "/comparador" in url_atual:
+                result_text = "Cliente elegível (tela do comparador aberta)"
+            else:
+                # Tenta encontrar mensagem de não elegível
+                page_content = await self.page.content()
+                if ("não elegível" in page_content.lower() or "nao elegivel" in page_content.lower()):
+                    result_text = "Cliente não elegível"
+                else:
+                    result_text = "Resultado Indeterminado"
+
+            # Retorna o print mais importante (após atualização)
+            return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_final
 
         except Exception as e:
             logger.error(f"Erro durante verificação: {str(e)}")
