@@ -61,7 +61,7 @@ async def automation_task(run_id: str, login: str, senha: str, cpf_do_cliente: s
     try:
         logger.info(f"[{run_id}] Iniciando automação")
         result = await run_automation(run_id, login, senha, cpf_do_cliente)
-        
+        logger.info(f"[{run_id}] Resultado retornado pela automação: {result}")
         run_results[run_id].update({
             "status": "completed",
             "result": result["result"],
@@ -158,12 +158,11 @@ async def create_run(request: RunRequest):
 async def get_status(run_id: str):
     if run_id not in run_results:
         raise HTTPException(status_code=404, detail="Run ID não encontrado")
-    
     result = run_results[run_id]
     return StatusResponse(
         run_id=run_id,
         status=result["status"],
-        result=result.get("result"),
+        result=result.get("result") or "Indefinido",
         log_summary=result.get("log_summary"),
         screenshot=result.get("screenshot")
     )
