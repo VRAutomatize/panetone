@@ -707,33 +707,152 @@ class PanAutomation:
                 logger.error(f"Erro ao preencher CPF: {str(e)}")
                 raise AutomationError(f"Falha ao preencher CPF: {str(e)}")
 
-            # Tirar print após digitar o CPF
-            logger.info("Capturando screenshot após digitar o CPF...")
-            screenshot_cpf = await self._capture_screenshot("cpf_inserido")
-
-            # Aguarda atualização automática (pelo menos 7 segundos OU até URL mudar para /comparador)
-            logger.info("Aguardando atualização automática da página de elegibilidade...")
-            try:
-                await asyncio.wait_for(self.page.wait_for_url("**/comparador", timeout=15000), timeout=15)
-            except Exception:
-                logger.warning("Timeout aguardando URL /comparador. Prosseguindo para checagem de elegibilidade.")
-            await asyncio.sleep(7)  # Garante o delay mínimo
-
-            # Tirar print após atualização da tela
+            # Aguarda atualização automática com lógica mais robusta
+            logger.info("Aguardando carregamento da página após inserção do CPF...")
+            
+            # Estratégias para detectar se a página carregou adequadamente
+            page_loaded = False
+            max_wait_time = 30  # Aumenta para 30 segundos
+            check_interval = 2   # Verifica a cada 2 segundos
+            elapsed_time = 0
+            
+            while elapsed_time < max_wait_time and not page_loaded:
+                try:
+                    # Verifica se a URL mudou para /comparador (cliente elegível)
+                    current_url = self.page.url
+                    if "/comparador" in current_url:
+                        logger.info("URL mudou para /comparador - cliente elegível detectado")
+                        page_loaded = True
+                        break
+                    
+                    # Verifica se há indicadores de carregamento na página
+                    page_content = await self.page.content()
+                    
+                    # Verifica se há mensagens de "não elegível" no conteúdo
+                    if ("não elegível" in page_content.lower() or 
+                        "nao elegivel" in page_content.lower() or
+                        "não é elegível" in page_content.lower() or
+                        "nao e elegivel" in page_content.lower()):
+                        logger.info("Mensagem de não elegível detectada no conteúdo da página")
+                        page_loaded = True
+                        break
+                    
+                    # Verifica se há elementos que indicam que a página carregou
+                    # (como formulários de proposta, botões de ação, etc.)
+                    loaded_indicators = [
+                        'form[action*="proposta"]',
+                        'button:has-text("Continuar")',
+                        'button:has-text("Próximo")',
+                        'button:has-text("Avançar")',
+                        '.proposta-form',
+                        '.elegibilidade-resultado',
+                        '[data-testid*="elegibilidade"]',
+                        '.loading',
+                        '.spinner',
+                        '.carregando'
+                    ]
+                    
+                    # Se encontrar elementos de loading, aguarda mais
+                    loading_elements = []
+                    for indicator in loaded_indicators:
+                        try:
+                            element = await self.page.query_selector(indicator)
+                            if element:
+                                loading_elements.append(indicator)
+                        except:
+                            continue
+                    
+                    if loading_elements:
+                        logger.info(f"Elementos de carregamento detectados: {loading_elements}. Aguardando...")
+                        await asyncio.sleep(check_interval)
+                        elapsed_time += check_interval
+                        continue
+                    
+                    # Verifica se a página está "quieta" (sem mudanças por alguns segundos)
+                    if elapsed_time > 10:  # Após 10 segundos, verifica se a página está estável
+                        logger.info("Verificando se a página está estável...")
+                        
+                        # Aguarda um pouco mais para garantir que não há mais mudanças
+                        await asyncio.sleep(3)
+                        
+                        # Verifica se a página está completamente carregada
+                        if await self._is_page_fully_loaded():
+                            logger.info("Página completamente carregada detectada")
+                            page_loaded = True
+                            break
+                        else:
+                            logger.info("Página ainda não está completamente carregada, aguardando mais...")
+                    
+                    await asyncio.sleep(check_interval)
+                    elapsed_time += check_interval
+                    
+                except Exception as e:
+                    logger.warning(f"Erro durante verificação de carregamento: {str(e)}")
+                    await asyncio.sleep(check_interval)
+                    elapsed_time += check_interval
+            
+            if not page_loaded:
+                logger.warning(f"Timeout após {max_wait_time} segundos. Prosseguindo com verificação...")
+            
+            # Aguarda um pouco mais para garantir que tudo carregou
+            logger.info("Aguardando 3 segundos finais para garantir carregamento completo...")
+            await asyncio.sleep(3)
+            
+            # Verificação final antes de tirar o screenshot
+            logger.info("Fazendo verificação final de carregamento...")
+            if not await self._is_page_fully_loaded():
+                logger.warning("Página ainda não está completamente carregada, mas prosseguindo com screenshot...")
+                # Aguarda mais um pouco
+                await asyncio.sleep(2)
+            else:
+                logger.info("Página confirmada como completamente carregada")
+            
+            # Tirar print após carregamento da página
             logger.info("Capturando screenshot da tela de resposta de elegibilidade...")
             screenshot_final = await self._capture_screenshot("resposta_elegibilidade")
 
-            # Verificar elegibilidade
+            # Verificar elegibilidade com lógica mais robusta
+            logger.info("Analisando resultado da elegibilidade...")
             url_atual = self.page.url
-            if "/comparador" in url_atual:
-                result_text = "Cliente elegível (tela do comparador aberta)"
+            page_content = await self.page.content()
+            
+            # Verifica múltiplos indicadores de elegibilidade
+            elegivel_indicators = [
+                "/comparador" in url_atual,
+                "comparador" in page_content.lower(),
+                "proposta" in page_content.lower() and "form" in page_content.lower(),
+                "continuar" in page_content.lower() and "proposta" in page_content.lower(),
+                "próximo" in page_content.lower() and "proposta" in page_content.lower()
+            ]
+            
+            nao_elegivel_indicators = [
+                "não elegível" in page_content.lower(),
+                "nao elegivel" in page_content.lower(),
+                "não é elegível" in page_content.lower(),
+                "nao e elegivel" in page_content.lower(),
+                "não possui elegibilidade" in page_content.lower(),
+                "nao possui elegibilidade" in page_content.lower(),
+                "não atende aos critérios" in page_content.lower(),
+                "nao atende aos criterios" in page_content.lower()
+            ]
+            
+            if any(elegivel_indicators):
+                result_text = "Cliente elegível"
+                logger.info("Cliente elegível detectado através de múltiplos indicadores")
+            elif any(nao_elegivel_indicators):
+                result_text = "Cliente não elegível"
+                logger.info("Cliente não elegível detectado através de mensagens na página")
             else:
-                # Tenta encontrar mensagem de não elegível
-                page_content = await self.page.content()
-                if ("não elegível" in page_content.lower() or "nao elegivel" in page_content.lower()):
-                    result_text = "Cliente não elegível"
+                # Verifica se há elementos visuais que indicam carregamento incompleto
+                loading_elements = await self.page.query_selector_all('.loading, .spinner, .carregando, [data-loading="true"]')
+                if loading_elements:
+                    result_text = "Resultado Indeterminado - Página ainda carregando"
+                    logger.warning("Página ainda apresenta elementos de carregamento")
                 else:
-                    result_text = "Resultado Indeterminado"
+                    result_text = "Resultado Indeterminado - Verificar manualmente"
+                    logger.warning("Não foi possível determinar elegibilidade automaticamente")
+            
+            logger.info(f"Resultado final: {result_text}")
 
             # Retorna o print mais importante (após atualização)
             return result_text.strip(), f"Verificação concluída: {result_text.strip()}", screenshot_final
@@ -744,6 +863,51 @@ class PanAutomation:
                 logger.info("Tentando capturar screenshot de erro...")
                 screenshot_base64 = await self._capture_screenshot("erro_verificacao")
             raise AutomationError(f"Falha na verificação: {str(e)}")
+
+    async def _is_page_fully_loaded(self) -> bool:
+        """
+        Verifica se a página está completamente carregada
+        """
+        try:
+            # Verifica se não há elementos de loading visíveis
+            loading_selectors = [
+                '.loading',
+                '.spinner', 
+                '.carregando',
+                '[data-loading="true"]',
+                '.loading-spinner',
+                '.ajax-loader',
+                '.progress-bar'
+            ]
+            
+            for selector in loading_selectors:
+                try:
+                    element = await self.page.query_selector(selector)
+                    if element and await element.is_visible():
+                        logger.debug(f"Elemento de loading encontrado: {selector}")
+                        return False
+                except:
+                    continue
+            
+            # Verifica se a página está "quieta" (sem mudanças recentes)
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=2000)
+                return True
+            except:
+                # Se não conseguir aguardar networkidle, verifica outros indicadores
+                pass
+            
+            # Verifica se há conteúdo significativo na página
+            page_content = await self.page.content()
+            if len(page_content) < 1000:  # Página muito pequena pode indicar carregamento incompleto
+                logger.debug("Página com conteúdo muito pequeno, possivelmente ainda carregando")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Erro ao verificar se página está carregada: {str(e)}")
+            return False
 
     async def _capture_screenshot(self, prefix: str) -> Optional[str]:
         """
