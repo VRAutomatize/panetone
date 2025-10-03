@@ -665,44 +665,144 @@ class PanAutomation:
                     "type": "selector",
                     "selector": 'input#combo__input',
                     "timeout": 7000
+                },
+                {
+                    "type": "selector", 
+                    "selector": 'input[role="combobox"][placeholder*="000.000.000-00"]',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input.combo__input',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[aria-controls="listbox-cpf"]',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[placeholder*="000.000.000-00"]',
+                    "timeout": 5000
+                },
+                {
+                    "type": "selector",
+                    "selector": 'input[type="text"][role="combobox"]',
+                    "timeout": 5000
                 }
             ]
             
             # Encontra o campo CPF
             logger.info("Procurando campo de CPF...")
             cpf_element = None
+            
+            # Aguarda um pouco para garantir que a página carregou completamente
+            await asyncio.sleep(2)
+            
             for strategy in cpf_strategies:
                 try:
                     if strategy["type"] == "selector":
+                        logger.info(f"Tentando seletor: {strategy['selector']}")
                         element = await self.page.wait_for_selector(
                             strategy["selector"],
+                            state="visible",  # Garante que o elemento está visível
                             timeout=strategy.get("timeout", 7000)
                         )
                         if element:
-                            cpf_element = element
-                            logger.info(f"Campo CPF encontrado via seletor: {strategy['selector']}")
-                            break
+                            # Verifica se o elemento está realmente visível e interagível
+                            is_visible = await element.is_visible()
+                            is_enabled = await element.is_enabled()
+                            
+                            if is_visible and is_enabled:
+                                cpf_element = element
+                                logger.info(f"Campo CPF encontrado e validado via seletor: {strategy['selector']}")
+                                break
+                            else:
+                                logger.debug(f"Elemento encontrado mas não está visível/enabled: {strategy['selector']}")
+                                continue
                 except Exception as e:
-                    logger.debug(f"Falha na estratégia de busca do CPF: {str(e)}")
+                    logger.debug(f"Falha na estratégia de busca do CPF com seletor {strategy['selector']}: {str(e)}")
                     continue
+            
             if not cpf_element:
-                raise AutomationError("Não foi possível encontrar o campo de CPF")
+                # Tenta uma busca mais ampla como último recurso
+                logger.info("Tentando busca mais ampla para campo CPF...")
+                try:
+                    # Busca por qualquer input que possa ser CPF
+                    all_inputs = await self.page.query_selector_all('input[type="text"]')
+                    for input_elem in all_inputs:
+                        try:
+                            placeholder = await input_elem.get_attribute('placeholder')
+                            role = await input_elem.get_attribute('role')
+                            id_attr = await input_elem.get_attribute('id')
+                            
+                            if (placeholder and '000.000.000-00' in placeholder) or \
+                               (role == 'combobox') or \
+                               (id_attr and 'combo' in id_attr):
+                                is_visible = await input_elem.is_visible()
+                                is_enabled = await input_elem.is_enabled()
+                                
+                                if is_visible and is_enabled:
+                                    cpf_element = input_elem
+                                    logger.info(f"Campo CPF encontrado via busca ampla - placeholder: {placeholder}, role: {role}, id: {id_attr}")
+                                    break
+                        except Exception as e:
+                            logger.debug(f"Erro ao verificar input: {str(e)}")
+                            continue
+                except Exception as e:
+                    logger.debug(f"Erro na busca ampla: {str(e)}")
+                
+                if not cpf_element:
+                    # Captura informações de debug
+                    await self._debug_page_state("cpf_nao_encontrado")
+                    raise AutomationError("Não foi possível encontrar o campo de CPF após todas as estratégias")
 
-            # Preenche o CPF número por número
+            # Preenche o CPF com estratégias específicas para combobox
             try:
-                await cpf_element.fill("")
-                await asyncio.sleep(0.5)
+                logger.info("Iniciando preenchimento do CPF...")
                 cpf_digits = ''.join(filter(str.isdigit, cpf))
-                logger.info(f"Iniciando preenchimento do CPF dígito por dígito...")
+                
+                # Estratégia 1: Focar no elemento primeiro
+                await cpf_element.focus()
+                await asyncio.sleep(0.5)
+                
+                # Estratégia 2: Limpar o campo
+                await cpf_element.evaluate('(element) => { element.value = ""; }')
+                await asyncio.sleep(0.3)
+                
+                # Estratégia 3: Preencher dígito por dígito com delay
+                logger.info(f"Preenchendo CPF dígito por dígito: {cpf_digits}")
                 for i, digit in enumerate(cpf_digits):
-                    await cpf_element.type(digit)
-                    await asyncio.sleep(0.2)
-                    logger.info(f"Dígito {i+1}/11 inserido")
+                    await cpf_element.type(digit, delay=100)
+                    await asyncio.sleep(0.1)
+                    logger.info(f"Dígito {i+1}/11 inserido: {digit}")
+                
+                # Verifica se foi preenchido corretamente
+                await asyncio.sleep(0.5)
                 final_value = await cpf_element.evaluate('(element) => element.value')
-                if len(''.join(filter(str.isdigit, final_value))) == 11:
+                final_digits = ''.join(filter(str.isdigit, final_value))
+                
+                if len(final_digits) == 11:
                     logger.info(f"CPF preenchido com sucesso. Valor final: {final_value}")
                 else:
-                    raise Exception(f"CPF não foi preenchido corretamente. Valor atual: {final_value}")
+                    # Estratégia 4: Tentar com JavaScript se o preenchimento manual falhou
+                    logger.warning(f"Preenchimento manual falhou. Valor atual: {final_value}. Tentando via JavaScript...")
+                    
+                    # Tenta preencher via JavaScript
+                    await cpf_element.evaluate(f'(element) => {{ element.value = "{cpf_digits}"; }}')
+                    await cpf_element.evaluate('(element) => element.dispatchEvent(new Event("input", { bubbles: true }))')
+                    await cpf_element.evaluate('(element) => element.dispatchEvent(new Event("change", { bubbles: true }))')
+                    
+                    await asyncio.sleep(0.5)
+                    final_value = await cpf_element.evaluate('(element) => element.value')
+                    final_digits = ''.join(filter(str.isdigit, final_value))
+                    
+                    if len(final_digits) == 11:
+                        logger.info(f"CPF preenchido via JavaScript com sucesso. Valor final: {final_value}")
+                    else:
+                        raise Exception(f"CPF não foi preenchido corretamente após todas as estratégias. Valor atual: {final_value}")
+                        
             except Exception as e:
                 logger.error(f"Erro ao preencher CPF: {str(e)}")
                 raise AutomationError(f"Falha ao preencher CPF: {str(e)}")
@@ -927,6 +1027,58 @@ class PanAutomation:
         except Exception as e:
             logger.error(f"Erro ao capturar screenshot: {str(e)}")
             return None
+
+    async def _debug_page_state(self, prefix: str):
+        """
+        Captura informações de debug da página para análise
+        """
+        try:
+            logger.info(f"Iniciando debug da página ({prefix})...")
+            
+            # Captura screenshot
+            screenshot = await self._capture_screenshot(f"debug_{prefix}")
+            
+            # Captura informações sobre inputs na página
+            inputs_info = await self.page.evaluate("""
+                () => {
+                    const inputs = document.querySelectorAll('input');
+                    return Array.from(inputs).map(input => ({
+                        id: input.id,
+                        type: input.type,
+                        placeholder: input.placeholder,
+                        role: input.role,
+                        className: input.className,
+                        name: input.name,
+                        visible: input.offsetParent !== null,
+                        enabled: !input.disabled,
+                        value: input.value
+                    }));
+                }
+            """)
+            
+            logger.info(f"Inputs encontrados na página ({len(inputs_info)}):")
+            for i, input_info in enumerate(inputs_info):
+                logger.info(f"  Input {i+1}: id='{input_info['id']}', type='{input_info['type']}', "
+                          f"placeholder='{input_info['placeholder']}', role='{input_info['role']}', "
+                          f"visible={input_info['visible']}, enabled={input_info['enabled']}")
+            
+            # Captura URL atual
+            current_url = self.page.url
+            logger.info(f"URL atual: {current_url}")
+            
+            # Captura título da página
+            title = await self.page.title()
+            logger.info(f"Título da página: {title}")
+            
+            # Verifica se há elementos de loading
+            loading_elements = await self.page.query_selector_all('.loading, .spinner, .carregando, [data-loading="true"]')
+            if loading_elements:
+                logger.info(f"Elementos de loading encontrados: {len(loading_elements)}")
+            else:
+                logger.info("Nenhum elemento de loading encontrado")
+                
+        except Exception as e:
+            logger.error(f"Erro durante debug da página: {str(e)}")
 
 async def run_automation(run_id: str, login: str, senha: str, cpf: str) -> Dict[str, str]:
     """
